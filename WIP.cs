@@ -33,6 +33,8 @@ namespace VRChatAvatarTools
         // Preview
         private Material previewMaterial;
         private bool showPreview = true;
+        private Texture2D previewTexture;
+        private bool needsPreviewUpdate = false;
         
         // Debug information
         private string debugInfo = "";
@@ -90,6 +92,13 @@ namespace VRChatAvatarTools
             
             EditorGUILayout.Space();
             DrawDebugInfo();
+            
+            // Update preview if needed
+            if (needsPreviewUpdate && showPreview && selectedVertices.Count > 0)
+            {
+                UpdatePreview();
+                needsPreviewUpdate = false;
+            }
         }
         
         private void DrawTargetSelection()
@@ -207,11 +216,30 @@ namespace VRChatAvatarTools
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField("Color Settings", EditorStyles.boldLabel);
             
+            EditorGUI.BeginChangeCheck();
             blendColor = EditorGUILayout.ColorField("Blend Color", blendColor);
             blendStrength = EditorGUILayout.Slider("Strength", blendStrength, 0f, 1f);
             currentBlendMode = (BlendMode)EditorGUILayout.EnumPopup("Blend Mode", currentBlendMode);
             
+            if (EditorGUI.EndChangeCheck())
+            {
+                needsPreviewUpdate = true;
+            }
+            
+            EditorGUI.BeginChangeCheck();
             showPreview = EditorGUILayout.Toggle("Show Preview", showPreview);
+            
+            if (EditorGUI.EndChangeCheck())
+            {
+                if (showPreview && selectedVertices.Count > 0)
+                {
+                    needsPreviewUpdate = true;
+                }
+                else if (!showPreview)
+                {
+                    RemovePreview();
+                }
+            }
             
             // Explanation for blend modes
             EditorGUILayout.HelpBox(GetBlendModeDescription(), MessageType.Info);
@@ -510,6 +538,12 @@ namespace VRChatAvatarTools
                 debugInfo += $"Selected triangles: {selectedTriangles.Count}\n";
                 debugInfo += $"Processed iterations: {processedCount}\n";
                 
+                // Update preview
+                if (showPreview)
+                {
+                    needsPreviewUpdate = true;
+                }
+                
                 Repaint();
                 SceneView.RepaintAll();
             }
@@ -528,7 +562,7 @@ namespace VRChatAvatarTools
                 if (vertexIndex < vertices.Length)
                 {
                     Vector3 worldPos = meshTransform.TransformPoint(vertices[vertexIndex]);
-                    Handles.SphereHandleCap(0, worldPos, Quaternion.identity, 0.005f, EventType.Repaint);
+                    Handles.SphereHandleCap(0, worldPos, Quaternion.identity, 0.01f, EventType.Repaint);
                 }
             }
         }
@@ -536,6 +570,9 @@ namespace VRChatAvatarTools
         private void ApplyColorToSelection()
         {
             if (originalTexture == null || selectedVertices.Count == 0) return;
+            
+            // Remove preview first
+            RemovePreview();
             
             // Create new texture
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -840,6 +877,7 @@ namespace VRChatAvatarTools
             if (originalMaterial != null && targetMeshRenderer != null)
             {
                 targetMeshRenderer.sharedMaterial = originalMaterial;
+                RemovePreview();
             }
         }
         
@@ -851,13 +889,6 @@ namespace VRChatAvatarTools
                 selectedVertices = new HashSet<int>(history.selectedVertices);
                 SceneView.RepaintAll();
             }
-        }
-        
-        private void ClearSelection()
-        {
-            selectedVertices.Clear();
-            selectedTriangles.Clear();
-            SceneView.RepaintAll();
         }
         
         private void SetupTempCollider()
@@ -909,11 +940,62 @@ namespace VRChatAvatarTools
             }
         }
         
+        private void UpdatePreview()
+        {
+            if (targetMeshRenderer == null || originalTexture == null || selectedVertices.Count == 0) return;
+            
+            // Create or update preview material
+            if (previewMaterial == null)
+            {
+                previewMaterial = new Material(originalMaterial);
+                previewMaterial.name = "Hair Editor Preview";
+            }
+            
+            // Create preview texture
+            if (previewTexture != null)
+            {
+                DestroyImmediate(previewTexture);
+            }
+            
+            previewTexture = CreateModifiedTexture();
+            previewMaterial.mainTexture = previewTexture;
+            
+            // Apply preview material
+            targetMeshRenderer.sharedMaterial = previewMaterial;
+            
+            debugInfo += "Preview updated\n";
+        }
+        
+        private void RemovePreview()
+        {
+            if (targetMeshRenderer != null && originalMaterial != null)
+            {
+                targetMeshRenderer.sharedMaterial = originalMaterial;
+            }
+            
+            if (previewTexture != null)
+            {
+                DestroyImmediate(previewTexture);
+                previewTexture = null;
+            }
+        }
+        
+        private void ClearSelection()
+        {
+            selectedVertices.Clear();
+            selectedTriangles.Clear();
+            RemovePreview();
+            SceneView.RepaintAll();
+        }
+        
         private void CleanupPreview()
         {
+            RemovePreview();
+            
             if (previewMaterial != null)
             {
                 DestroyImmediate(previewMaterial);
+                previewMaterial = null;
             }
         }
         
