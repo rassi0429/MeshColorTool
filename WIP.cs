@@ -346,12 +346,12 @@ namespace VRChatAvatarTools
             }
             
             // Debug: Show mouse position
-            if (e.type == EventType.MouseMove)
+            if (e.type == EventType.MouseMove && isSelectionMode)
             {
                 Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
                 debugInfo = $"Mouse Ray Origin: {ray.origin}\n";
                 debugInfo += $"Mouse Ray Direction: {ray.direction}\n";
-                Repaint();
+                if (this != null) Repaint();
             }
             
             if (e.type == EventType.MouseDown && e.button == 0 && isSelectionMode)
@@ -425,7 +425,7 @@ namespace VRChatAvatarTools
                     debugInfo += $"Mesh assigned: {tempCollider.sharedMesh != null}\n";
                 }
                 
-                Repaint();
+                if (this != null) Repaint();
                 e.Use();
             }
             
@@ -544,7 +544,10 @@ namespace VRChatAvatarTools
                     needsPreviewUpdate = true;
                 }
                 
-                Repaint();
+                // Schedule repaint instead of immediate
+                EditorApplication.delayCall += () => {
+                    if (this != null) Repaint();
+                };
                 SceneView.RepaintAll();
             }
         }
@@ -562,7 +565,7 @@ namespace VRChatAvatarTools
                 if (vertexIndex < vertices.Length)
                 {
                     Vector3 worldPos = meshTransform.TransformPoint(vertices[vertexIndex]);
-                    Handles.SphereHandleCap(0, worldPos, Quaternion.identity, 0.01f, EventType.Repaint);
+                    Handles.SphereHandleCap(0, worldPos, Quaternion.identity, 0.003f, EventType.Repaint);
                 }
             }
         }
@@ -921,7 +924,11 @@ namespace VRChatAvatarTools
             tempObject.hideFlags = HideFlags.HideAndDontSave;
             
             debugInfo += "Temporary collider created for raycasting\n";
-            Repaint();
+            
+            // Schedule repaint instead of immediate
+            EditorApplication.delayCall += () => {
+                if (this != null) Repaint();
+            };
         }
         
         private void RemoveTempCollider()
