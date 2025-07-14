@@ -20,8 +20,10 @@ namespace VRChatAvatarTools
         private List<int> selectedTriangles = new List<int>();
         
         // Editing
-        private Color additiveColor = new Color(0.5f, 0.5f, 0.5f, 1f);
-        private float additiveStrength = 0.5f;
+        private Color blendColor = new Color(0.5f, 0.5f, 0.5f, 1f);
+        private float blendStrength = 0.5f;
+        private enum BlendMode { Additive, Multiply, Color, Overlay }
+        private BlendMode currentBlendMode = BlendMode.Color;
         
         // History
         private Material originalMaterial;
@@ -110,6 +112,12 @@ namespace VRChatAvatarTools
                     if (originalMaterial != null && originalMaterial.mainTexture != null)
                     {
                         originalTexture = originalMaterial.mainTexture as Texture2D;
+                        
+                        // Check if texture is readable
+                        if (!IsTextureReadable(originalTexture))
+                        {
+                            debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
+                        }
                     }
                     
                     // Setup temporary collider for raycasting
@@ -124,6 +132,13 @@ namespace VRChatAvatarTools
                 EditorGUILayout.LabelField("Mesh: " + targetMesh.name);
                 EditorGUILayout.LabelField("Vertices: " + targetMesh.vertexCount);
                 EditorGUILayout.LabelField("Material: " + (originalMaterial != null ? originalMaterial.name : "None"));
+                
+                if (originalTexture != null)
+                {
+                    bool isReadable = IsTextureReadable(originalTexture);
+                    EditorGUILayout.LabelField("Texture Readable: " + (isReadable ? "Yes" : "No (will copy)"), 
+                        isReadable ? EditorStyles.miniLabel : EditorStyles.miniBoldLabel);
+                }
                 
                 if (tempCollider != null)
                 {
@@ -192,12 +207,33 @@ namespace VRChatAvatarTools
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField("Color Settings", EditorStyles.boldLabel);
             
-            additiveColor = EditorGUILayout.ColorField("Additive Color", additiveColor);
-            additiveStrength = EditorGUILayout.Slider("Strength", additiveStrength, 0f, 1f);
+            blendColor = EditorGUILayout.ColorField("Blend Color", blendColor);
+            blendStrength = EditorGUILayout.Slider("Strength", blendStrength, 0f, 1f);
+            currentBlendMode = (BlendMode)EditorGUILayout.EnumPopup("Blend Mode", currentBlendMode);
             
             showPreview = EditorGUILayout.Toggle("Show Preview", showPreview);
             
+            // Explanation for blend modes
+            EditorGUILayout.HelpBox(GetBlendModeDescription(), MessageType.Info);
+            
             EditorGUILayout.EndVertical();
+        }
+        
+        private string GetBlendModeDescription()
+        {
+            switch (currentBlendMode)
+            {
+                case BlendMode.Additive:
+                    return "Adds color values (brightens)";
+                case BlendMode.Multiply:
+                    return "Multiplies color values (darkens)";
+                case BlendMode.Color:
+                    return "Applies hue and saturation while preserving luminance (Photoshop Color mode)";
+                case BlendMode.Overlay:
+                    return "Combines multiply and screen based on base color";
+                default:
+                    return "";
+            }
         }
         
         private void DrawActions()
@@ -492,7 +528,7 @@ namespace VRChatAvatarTools
                 if (vertexIndex < vertices.Length)
                 {
                     Vector3 worldPos = meshTransform.TransformPoint(vertices[vertexIndex]);
-                    Handles.SphereHandleCap(0, worldPos, Quaternion.identity, 0.01f, EventType.Repaint);
+                    Handles.SphereHandleCap(0, worldPos, Quaternion.identity, 0.005f, EventType.Repaint);
                 }
             }
         }
@@ -514,17 +550,25 @@ namespace VRChatAvatarTools
             // Copy and modify texture
             Texture2D newTexture = CreateModifiedTexture();
             
+            if (newTexture == null)
+            {
+                EditorUtility.DisplayDialog("Error", "Failed to create texture. Please check if the original texture has Read/Write enabled.", "OK");
+                return;
+            }
+            
             // Save texture
             byte[] pngData = newTexture.EncodeToPNG();
             System.IO.File.WriteAllBytes(newTexturePath, pngData);
             AssetDatabase.Refresh();
             
-            // Load saved texture
+            // Load saved texture with proper import settings
             TextureImporter importer = AssetImporter.GetAtPath(newTexturePath) as TextureImporter;
             if (importer != null)
             {
                 importer.textureType = TextureImporterType.Default;
                 importer.sRGBTexture = true;
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
                 importer.SaveAndReimport();
             }
             
@@ -560,32 +604,79 @@ namespace VRChatAvatarTools
             
             // Clear selection
             ClearSelection();
+            
+            debugInfo += $"\nTexture saved: {newTexturePath}\n";
+            debugInfo += $"Material saved: {newMaterialPath}\n";
+        }
+        
+        private bool IsTextureReadable(Texture2D texture)
+        {
+            try
+            {
+                texture.GetPixel(0, 0);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        
+        private Texture2D GetReadableTexture(Texture2D source)
+        {
+            // Create a temporary RenderTexture
+            RenderTexture tmp = RenderTexture.GetTemporary(
+                source.width,
+                source.height,
+                0,
+                RenderTextureFormat.ARGB32,
+                RenderTextureReadWrite.sRGB
+            );
+            
+            // Copy the source texture to the RenderTexture
+            Graphics.Blit(source, tmp);
+            
+            // Set the RenderTexture as active
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = tmp;
+            
+            // Create a new readable Texture2D and read the pixels
+            Texture2D readableTexture = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
+            readableTexture.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
+            readableTexture.Apply();
+            
+            // Reset active RenderTexture
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(tmp);
+            
+            return readableTexture;
         }
         
         private Texture2D CreateModifiedTexture()
         {
-            // Create readable copy of original texture
-            RenderTexture tmp = RenderTexture.GetTemporary(
-                originalTexture.width,
-                originalTexture.height,
-                0,
-                RenderTextureFormat.Default,
-                RenderTextureReadWrite.Linear
-            );
+            Texture2D workingTexture;
             
-            Graphics.Blit(originalTexture, tmp);
-            RenderTexture previous = RenderTexture.active;
-            RenderTexture.active = tmp;
-            
-            Texture2D newTexture = new Texture2D(originalTexture.width, originalTexture.height);
-            newTexture.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
-            newTexture.Apply();
-            
-            RenderTexture.active = previous;
-            RenderTexture.ReleaseTemporary(tmp);
+            // Check if original texture is readable
+            if (IsTextureReadable(originalTexture))
+            {
+                debugInfo += "Using original texture (readable)\n";
+                // Create a copy of the original texture
+                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
+                workingTexture.SetPixels(originalTexture.GetPixels());
+                workingTexture.Apply();
+            }
+            else
+            {
+                debugInfo += "Creating readable copy of texture\n";
+                // Create readable copy using RenderTexture
+                workingTexture = GetReadableTexture(originalTexture);
+            }
             
             // Get UV coordinates for selected vertices
             Vector2[] uvs = targetMesh.uv;
+            
+            // Create a set to track which pixels have been painted
+            HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
             
             // Paint on texture
             foreach (int triangleIndex in selectedTriangles)
@@ -599,23 +690,23 @@ namespace VRChatAvatarTools
                     Vector2 uv1 = uvs[triangles[baseIndex + 1]];
                     Vector2 uv2 = uvs[triangles[baseIndex + 2]];
                     
-                    PaintTriangleOnTexture(newTexture, uv0, uv1, uv2);
+                    PaintTriangleOnTexture(workingTexture, uv0, uv1, uv2, paintedPixels);
                 }
             }
             
-            newTexture.Apply();
-            return newTexture;
+            workingTexture.Apply();
+            return workingTexture;
         }
         
-        private void PaintTriangleOnTexture(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2)
+        private void PaintTriangleOnTexture(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, HashSet<Vector2Int> paintedPixels)
         {
             // Convert UV to pixel coordinates
-            int x0 = Mathf.RoundToInt(uv0.x * texture.width);
-            int y0 = Mathf.RoundToInt(uv0.y * texture.height);
-            int x1 = Mathf.RoundToInt(uv1.x * texture.width);
-            int y1 = Mathf.RoundToInt(uv1.y * texture.height);
-            int x2 = Mathf.RoundToInt(uv2.x * texture.width);
-            int y2 = Mathf.RoundToInt(uv2.y * texture.height);
+            int x0 = Mathf.RoundToInt(uv0.x * (texture.width - 1));
+            int y0 = Mathf.RoundToInt(uv0.y * (texture.height - 1));
+            int x1 = Mathf.RoundToInt(uv1.x * (texture.width - 1));
+            int y1 = Mathf.RoundToInt(uv1.y * (texture.height - 1));
+            int x2 = Mathf.RoundToInt(uv2.x * (texture.width - 1));
+            int y2 = Mathf.RoundToInt(uv2.y * (texture.height - 1));
             
             // Get bounding box
             int minX = Mathf.Max(0, Mathf.Min(x0, Mathf.Min(x1, x2)));
@@ -628,14 +719,111 @@ namespace VRChatAvatarTools
             {
                 for (int y = minY; y <= maxY; y++)
                 {
-                    if (IsPointInTriangle(x, y, x0, y0, x1, y1, x2, y2))
+                    Vector2Int pixelCoord = new Vector2Int(x, y);
+                    
+                    // Only paint if we haven't painted this pixel yet and it's inside the triangle
+                    if (!paintedPixels.Contains(pixelCoord) && IsPointInTriangle(x, y, x0, y0, x1, y1, x2, y2))
                     {
+                        paintedPixels.Add(pixelCoord);
                         Color originalColor = texture.GetPixel(x, y);
-                        Color blendedColor = Color.Lerp(originalColor, originalColor + additiveColor, additiveStrength);
+                        Color blendedColor = ApplyBlendMode(originalColor, blendColor, currentBlendMode, blendStrength);
                         texture.SetPixel(x, y, blendedColor);
                     }
                 }
             }
+        }
+        
+        private Color ApplyBlendMode(Color baseColor, Color blendColor, BlendMode mode, float strength)
+        {
+            Color result = baseColor;
+            
+            switch (mode)
+            {
+                case BlendMode.Additive:
+                    result = baseColor + blendColor * strength;
+                    break;
+                    
+                case BlendMode.Multiply:
+                    result = Color.Lerp(baseColor, baseColor * blendColor, strength);
+                    break;
+                    
+                case BlendMode.Color:
+                    // Photoshop Color mode: Apply hue and saturation while preserving luminance
+                    float baseLuminance = GetLuminance(baseColor);
+                    Color colorized = SetLuminance(blendColor, baseLuminance);
+                    result = Color.Lerp(baseColor, colorized, strength);
+                    break;
+                    
+                case BlendMode.Overlay:
+                    // Overlay: multiply dark colors, screen light colors
+                    result = new Color(
+                        OverlayChannel(baseColor.r, blendColor.r, strength),
+                        OverlayChannel(baseColor.g, blendColor.g, strength),
+                        OverlayChannel(baseColor.b, blendColor.b, strength),
+                        baseColor.a
+                    );
+                    break;
+            }
+            
+            // Clamp values
+            result.r = Mathf.Clamp01(result.r);
+            result.g = Mathf.Clamp01(result.g);
+            result.b = Mathf.Clamp01(result.b);
+            result.a = baseColor.a; // Preserve original alpha
+            
+            return result;
+        }
+        
+        private float GetLuminance(Color color)
+        {
+            // Use standard luminance calculation
+            return 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
+        }
+        
+        private Color SetLuminance(Color color, float targetLuminance)
+        {
+            float currentLuminance = GetLuminance(color);
+            
+            if (currentLuminance <= 0.0001f)
+            {
+                // If the color is black, return gray with target luminance
+                return new Color(targetLuminance, targetLuminance, targetLuminance, color.a);
+            }
+            
+            // Scale the color to match target luminance
+            float scale = targetLuminance / currentLuminance;
+            
+            Color result = new Color(
+                color.r * scale,
+                color.g * scale,
+                color.b * scale,
+                color.a
+            );
+            
+            // Handle cases where scaling causes values to exceed 1.0
+            float maxComponent = Mathf.Max(result.r, Mathf.Max(result.g, result.b));
+            if (maxComponent > 1.0f)
+            {
+                // Desaturate towards target luminance
+                float desaturation = (maxComponent - 1.0f) / (maxComponent - targetLuminance);
+                result = Color.Lerp(result, new Color(targetLuminance, targetLuminance, targetLuminance, color.a), desaturation);
+            }
+            
+            return result;
+        }
+        
+        private float OverlayChannel(float baseValue, float blendValue, float strength)
+        {
+            float result;
+            if (baseValue < 0.5f)
+            {
+                result = 2.0f * baseValue * blendValue;
+            }
+            else
+            {
+                result = 1.0f - 2.0f * (1.0f - baseValue) * (1.0f - blendValue);
+            }
+            return Mathf.Lerp(baseValue, result, strength);
         }
         
         private bool IsPointInTriangle(int px, int py, int x0, int y0, int x1, int y1, int x2, int y2)
