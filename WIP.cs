@@ -18,9 +18,6 @@ namespace VRChatAvatarTools
         private bool isSelectionMode = false;
         private HashSet<int> selectedVertices = new HashSet<int>();
         private List<int> selectedTriangles = new List<int>();
-        private bool selectBackface = true;
-        private float backfaceDistanceThreshold = 0.0001f;
-        private int minDuplicateVertices = 10; // Minimum duplicate vertices to consider as backface
         
         // Multiple selection support
         private List<HairStrandSelection> hairStrandSelections = new List<HairStrandSelection>();
@@ -202,19 +199,6 @@ namespace VRChatAvatarTools
             if (isSelectionMode)
             {
                 EditorGUILayout.HelpBox("Click: Select new strand | Shift+Click: Add to selection", MessageType.Info);
-            }
-            
-            // Backface selection options
-            EditorGUILayout.Space();
-            selectBackface = EditorGUILayout.Toggle("Select Backface", selectBackface);
-            
-            if (selectBackface)
-            {
-                EditorGUI.indentLevel++;
-                backfaceDistanceThreshold = EditorGUILayout.Slider("Distance Threshold", backfaceDistanceThreshold, 0.00001f, 0.001f);
-                minDuplicateVertices = EditorGUILayout.IntSlider("Min Duplicate Vertices", minDuplicateVertices, 5, 50);
-                EditorGUILayout.HelpBox("Detects backface by finding areas where many vertices share the same position.", MessageType.None);
-                EditorGUI.indentLevel--;
             }
             
             EditorGUILayout.LabelField("Total Selected Vertices: " + GetTotalSelectedVertices());
@@ -632,15 +616,7 @@ namespace VRChatAvatarTools
                     }
                 }
                 
-                debugInfo += $"Selected vertices (front): {selectedVertices.Count}\n";
-                
-                // Select backface vertices if enabled
-                if (selectBackface)
-                {
-                    SelectBackfaceVertices(vertices, meshTransform);
-                }
-                
-                debugInfo += $"Total selected vertices: {selectedVertices.Count}\n";
+                debugInfo += $"Selected vertices: {selectedVertices.Count}\n";
                 debugInfo += $"Selected triangles: {selectedTriangles.Count}\n";
                 debugInfo += $"Processed iterations: {processedCount}\n";
                 
@@ -677,137 +653,6 @@ namespace VRChatAvatarTools
             }
         }
         
-        private void SelectBackfaceVertices(Vector3[] vertices, Transform meshTransform)
-        {
-            debugInfo += "\n--- Selecting Backface Vertices ---\n";
-            
-            // Create a dictionary to group vertices by position
-            Dictionary<Vector3, List<int>> verticesByPosition = new Dictionary<Vector3, List<int>>();
-            
-            // Group all vertices by their world position (rounded to threshold precision)
-            for (int i = 0; i < vertices.Length; i++)
-            {
-                Vector3 worldPos = meshTransform.TransformPoint(vertices[i]);
-                // Round position to threshold precision to group nearby vertices
-                Vector3 roundedPos = new Vector3(
-                    Mathf.Round(worldPos.x / backfaceDistanceThreshold) * backfaceDistanceThreshold,
-                    Mathf.Round(worldPos.y / backfaceDistanceThreshold) * backfaceDistanceThreshold,
-                    Mathf.Round(worldPos.z / backfaceDistanceThreshold) * backfaceDistanceThreshold
-                );
-                
-                if (!verticesByPosition.ContainsKey(roundedPos))
-                {
-                    verticesByPosition[roundedPos] = new List<int>();
-                }
-                verticesByPosition[roundedPos].Add(i);
-            }
-            
-            // Find positions where selected vertices have duplicates
-            HashSet<Vector3> backfacePositions = new HashSet<Vector3>();
-            int duplicatesFound = 0;
-            
-            foreach (int selectedVertex in new List<int>(selectedVertices))
-            {
-                Vector3 worldPos = meshTransform.TransformPoint(vertices[selectedVertex]);
-                Vector3 roundedPos = new Vector3(
-                    Mathf.Round(worldPos.x / backfaceDistanceThreshold) * backfaceDistanceThreshold,
-                    Mathf.Round(worldPos.y / backfaceDistanceThreshold) * backfaceDistanceThreshold,
-                    Mathf.Round(worldPos.z / backfaceDistanceThreshold) * backfaceDistanceThreshold
-                );
-                
-                if (verticesByPosition.ContainsKey(roundedPos) && verticesByPosition[roundedPos].Count > 1)
-                {
-                    // Found duplicate vertices at this position
-                    duplicatesFound++;
-                    backfacePositions.Add(roundedPos);
-                }
-            }
-            
-            debugInfo += $"Found {duplicatesFound} positions with duplicate vertices\n";
-            debugInfo += $"Unique positions with duplicates: {backfacePositions.Count}\n";
-            
-            // Only proceed if we found enough duplicate positions (indicating a double-sided mesh)
-            if (backfacePositions.Count >= minDuplicateVertices)
-            {
-                debugInfo += "Detected double-sided mesh structure\n";
-                
-                // Select all vertices at positions where we found duplicates
-                int addedVertices = 0;
-                foreach (Vector3 pos in backfacePositions)
-                {
-                    foreach (int vertexIndex in verticesByPosition[pos])
-                    {
-                        if (!selectedVertices.Contains(vertexIndex))
-                        {
-                            // Add this vertex and its connected vertices
-                            AddConnectedVertices(vertexIndex, vertices);
-                            addedVertices++;
-                        }
-                    }
-                }
-                
-                debugInfo += $"Added {addedVertices} backface vertices\n";
-            }
-            else
-            {
-                debugInfo += $"Not enough duplicate positions found ({backfacePositions.Count} < {minDuplicateVertices})\n";
-                debugInfo += "Mesh might be single-sided or threshold too small\n";
-            }
-        }
-        
-        private void AddConnectedVertices(int startVertex, Vector3[] vertices)
-        {
-            if (selectedVertices.Contains(startVertex)) return;
-            
-            HashSet<int> visited = new HashSet<int>();
-            Queue<int> queue = new Queue<int>();
-            
-            queue.Enqueue(startVertex);
-            visited.Add(startVertex);
-            
-            int[] triangles = targetMesh.triangles;
-            
-            while (queue.Count > 0)
-            {
-                int currentVertex = queue.Dequeue();
-                selectedVertices.Add(currentVertex);
-                
-                // Find all triangles containing this vertex
-                for (int i = 0; i < triangles.Length; i += 3)
-                {
-                    bool containsVertex = false;
-                    
-                    for (int j = 0; j < 3; j++)
-                    {
-                        if (triangles[i + j] == currentVertex)
-                        {
-                            containsVertex = true;
-                            break;
-                        }
-                    }
-                    
-                    if (containsVertex)
-                    {
-                        // Add triangle indices
-                        if (!selectedTriangles.Contains(i / 3))
-                        {
-                            selectedTriangles.Add(i / 3);
-                        }
-                        
-                        // Add connected vertices
-                        for (int j = 0; j < 3; j++)
-                        {
-                            int vertexIndex = triangles[i + j];
-                            if (!visited.Contains(vertexIndex) && !selectedVertices.Contains(vertexIndex))
-                            {
-                                visited.Add(vertexIndex);
-                                queue.Enqueue(vertexIndex);
-                            }
-                        }
-                    }
-                }
-            }
-        }
         
         private void DrawAllSelections()
         {
