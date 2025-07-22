@@ -16,13 +16,13 @@ namespace VRChatAvatarTools
         
         // Selection
         private bool isSelectionMode = false;
+        private bool isMultiSelectionMode = false;
         private HashSet<int> selectedVertices = new HashSet<int>();
         private List<int> selectedTriangles = new List<int>();
         
         // Multiple selection support
         private List<HairStrandSelection> hairStrandSelections = new List<HairStrandSelection>();
         private int activeSelectionIndex = -1;
-        private bool addToSelection = false; // Shift key to add to selection
         private Vector2 selectionScrollPos;
         
         // Editing
@@ -198,7 +198,17 @@ namespace VRChatAvatarTools
             
             if (isSelectionMode)
             {
-                EditorGUILayout.HelpBox("Click: Select new strand | Shift+Click: Add to selection", MessageType.Info);
+                EditorGUILayout.Space();
+                isMultiSelectionMode = EditorGUILayout.Toggle("Multi Selection Mode", isMultiSelectionMode);
+                
+                if (isMultiSelectionMode)
+                {
+                    EditorGUILayout.HelpBox("Click: Add to selection | Ctrl+Click: Remove from selection", MessageType.Info);
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox("Click: Select new strand", MessageType.Info);
+                }
             }
             
             EditorGUILayout.LabelField("Total Selected Vertices: " + GetTotalSelectedVertices());
@@ -252,12 +262,8 @@ namespace VRChatAvatarTools
                     
                     GUI.backgroundColor = Color.white;
                     
-                    // Individual color override
-                    selection.useCustomColor = EditorGUILayout.Toggle(selection.useCustomColor, GUILayout.Width(20));
-                    if (selection.useCustomColor)
-                    {
-                        selection.customColor = EditorGUILayout.ColorField(selection.customColor, GUILayout.Width(50));
-                    }
+                    // Enable/disable selection
+                    selection.isEnabled = EditorGUILayout.Toggle(selection.isEnabled, GUILayout.Width(20));
                     
                     // Remove button
                     GUI.backgroundColor = Color.red;
@@ -274,16 +280,10 @@ namespace VRChatAvatarTools
                 
                 EditorGUILayout.Space();
                 
-                EditorGUILayout.BeginHorizontal();
-                if (GUILayout.Button("Merge Selected"))
-                {
-                    MergeSelections();
-                }
                 if (GUILayout.Button("Invert Active"))
                 {
                     InvertActiveSelection();
                 }
-                EditorGUILayout.EndHorizontal();
             }
             
             EditorGUILayout.EndVertical();
@@ -434,11 +434,12 @@ namespace VRChatAvatarTools
             
             if (e.type == EventType.MouseDown && e.button == 0 && isSelectionMode)
             {
-                // Check if shift key is held for adding to selection
-                addToSelection = e.shift;
+                // Check modifier keys
+                bool isCtrlHeld = e.control;
                 
                 debugInfo += "\n=== CLICK EVENT ===\n";
-                debugInfo += $"Shift key: {addToSelection}\n";
+                debugInfo += $"Multi Selection Mode: {isMultiSelectionMode}\n";
+                debugInfo += $"Ctrl key: {isCtrlHeld}\n";
                 Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
                 debugInfo += $"Click Position: {e.mousePosition}\n";
                 debugInfo += $"Ray: {ray.origin} -> {ray.direction}\n";
@@ -538,6 +539,10 @@ namespace VRChatAvatarTools
             debugInfo += "\n--- SelectHairStrand CALLED ---\n";
             debugInfo += $"Hit Point: {hitPoint}\n";
             
+            // Get modifier key states from current event
+            Event currentEvent = Event.current;
+            bool isCtrlHeld = currentEvent != null ? currentEvent.control : false;
+            
             // Find nearest vertex
             Vector3[] vertices = targetMesh.vertices;
             Transform meshTransform = targetMeshRenderer.transform;
@@ -620,22 +625,46 @@ namespace VRChatAvatarTools
                 debugInfo += $"Selected triangles: {selectedTriangles.Count}\n";
                 debugInfo += $"Processed iterations: {processedCount}\n";
                 
-                // Create or update selection
-                if (!addToSelection || hairStrandSelections.Count == 0)
+                // Handle selection based on mode
+                if (isMultiSelectionMode)
                 {
-                    // Create new selection (replace current)
-                    hairStrandSelections.Clear();
+                    // Multi Selection Mode
+                    if (isCtrlHeld)
+                    {
+                        // Remove from selection
+                        debugInfo += "Multi Mode: Removing from selection\n";
+                        RemoveVerticesFromSelections(selectedVertices);
+                    }
+                    else
+                    {
+                        // Add to selection
+                        debugInfo += "Multi Mode: Adding to selection\n";
+                        var newSelection = new HairStrandSelection
+                        {
+                            vertices = new HashSet<int>(selectedVertices),
+                            triangles = new List<int>(selectedTriangles)
+                        };
+                        
+                        hairStrandSelections.Add(newSelection);
+                        activeSelectionIndex = hairStrandSelections.Count - 1;
+                    }
                 }
-                
-                // Add new selection
-                var newSelection = new HairStrandSelection
+                else
                 {
-                    vertices = new HashSet<int>(selectedVertices),
-                    triangles = new List<int>(selectedTriangles)
-                };
-                
-                hairStrandSelections.Add(newSelection);
-                activeSelectionIndex = hairStrandSelections.Count - 1;
+                    // Normal Selection Mode - always replace selection
+                    debugInfo += "Normal Mode: Replacing selection\n";
+                    hairStrandSelections.Clear();
+                    
+                    // Add new selection
+                    var newSelection = new HairStrandSelection
+                    {
+                        vertices = new HashSet<int>(selectedVertices),
+                        triangles = new List<int>(selectedTriangles)
+                    };
+                    
+                    hairStrandSelections.Add(newSelection);
+                    activeSelectionIndex = hairStrandSelections.Count - 1;
+                }
                 
                 debugInfo += $"Total selections: {hairStrandSelections.Count}\n";
                 
@@ -829,14 +858,13 @@ namespace VRChatAvatarTools
             // Get UV coordinates
             Vector2[] uvs = targetMesh.uv;
             
-            // Apply color for each selection
+            // Apply color for each enabled selection
             foreach (var selection in hairStrandSelections)
             {
-                HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
+                // Skip disabled selections
+                if (!selection.isEnabled) continue;
                 
-                // Determine color to use
-                Color colorToUse = selection.useCustomColor ? selection.customColor : blendColor;
-                float strengthToUse = selection.useCustomColor ? selection.customStrength : blendStrength;
+                HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
                 
                 // Paint triangles for this selection
                 foreach (int triangleIndex in selection.triangles)
@@ -850,7 +878,7 @@ namespace VRChatAvatarTools
                         Vector2 uv1 = uvs[triangles[baseIndex + 1]];
                         Vector2 uv2 = uvs[triangles[baseIndex + 2]];
                         
-                        PaintTriangleOnTextureWithColor(workingTexture, uv0, uv1, uv2, paintedPixels, colorToUse, strengthToUse);
+                        PaintTriangleOnTextureWithColor(workingTexture, uv0, uv1, uv2, paintedPixels, blendColor, blendStrength);
                     }
                 }
             }
@@ -1198,30 +1226,6 @@ namespace VRChatAvatarTools
             }
         }
         
-        private void MergeSelections()
-        {
-            if (hairStrandSelections.Count <= 1) return;
-            
-            HashSet<int> mergedVertices = new HashSet<int>();
-            HashSet<int> mergedTriangles = new HashSet<int>();
-            
-            foreach (var selection in hairStrandSelections)
-            {
-                mergedVertices.UnionWith(selection.vertices);
-                mergedTriangles.UnionWith(selection.triangles);
-            }
-            
-            hairStrandSelections.Clear();
-            hairStrandSelections.Add(new HairStrandSelection
-            {
-                vertices = mergedVertices,
-                triangles = new List<int>(mergedTriangles)
-            });
-            
-            activeSelectionIndex = 0;
-            SetActiveSelection(0);
-        }
-        
         private void InvertActiveSelection()
         {
             if (activeSelectionIndex < 0 || targetMesh == null) return;
@@ -1266,6 +1270,79 @@ namespace VRChatAvatarTools
             SetActiveSelection(activeSelectionIndex);
         }
         
+        private void RemoveVerticesFromSelections(HashSet<int> verticesToRemove)
+        {
+            debugInfo += $"Removing {verticesToRemove.Count} vertices from selections\n";
+            
+            // Remove vertices from all selections
+            for (int i = hairStrandSelections.Count - 1; i >= 0; i--)
+            {
+                var selection = hairStrandSelections[i];
+                
+                // Remove vertices
+                selection.vertices.ExceptWith(verticesToRemove);
+                
+                // Remove triangles that contain any of the removed vertices
+                int[] triangles = targetMesh.triangles;
+                for (int j = selection.triangles.Count - 1; j >= 0; j--)
+                {
+                    int triangleIndex = selection.triangles[j];
+                    int baseIndex = triangleIndex * 3;
+                    
+                    if (baseIndex + 2 < triangles.Length)
+                    {
+                        bool containsRemovedVertex = false;
+                        for (int k = 0; k < 3; k++)
+                        {
+                            if (verticesToRemove.Contains(triangles[baseIndex + k]))
+                            {
+                                containsRemovedVertex = true;
+                                break;
+                            }
+                        }
+                        
+                        if (containsRemovedVertex)
+                        {
+                            selection.triangles.RemoveAt(j);
+                        }
+                    }
+                }
+                
+                // Remove empty selections
+                if (selection.vertices.Count == 0)
+                {
+                    hairStrandSelections.RemoveAt(i);
+                    if (activeSelectionIndex == i)
+                    {
+                        activeSelectionIndex = -1;
+                    }
+                    else if (activeSelectionIndex > i)
+                    {
+                        activeSelectionIndex--;
+                    }
+                }
+            }
+            
+            // Update active selection
+            if (activeSelectionIndex >= hairStrandSelections.Count)
+            {
+                activeSelectionIndex = hairStrandSelections.Count - 1;
+            }
+            
+            if (activeSelectionIndex >= 0)
+            {
+                SetActiveSelection(activeSelectionIndex);
+            }
+            else
+            {
+                selectedVertices.Clear();
+                selectedTriangles.Clear();
+                RemovePreview();
+            }
+            
+            debugInfo += $"Remaining selections: {hairStrandSelections.Count}\n";
+        }
+        
         [System.Serializable]
         private class EditHistory
         {
@@ -1280,9 +1357,7 @@ namespace VRChatAvatarTools
         {
             public HashSet<int> vertices = new HashSet<int>();
             public List<int> triangles = new List<int>();
-            public bool useCustomColor = false;
-            public Color customColor = Color.white;
-            public float customStrength = 0.5f;
+            public bool isEnabled = true;
         }
     }
 }
