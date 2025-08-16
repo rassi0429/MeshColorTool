@@ -1,1643 +1,260 @@
 using UnityEngine;
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 using System.Collections.Generic;
-using System.Linq;
-using System;
 
 namespace VRChatAvatarTools
 {
-    public class MeshColorEditorWindow : EditorWindow
+    /// <summary>
+    /// MeshColorToolのフェイルセーフコンポーネント
+    /// 編集中にツールがクラッシュしても元のマテリアルに戻すことを保証する
+    /// </summary>
+    [ExecuteInEditMode]
+    public class MeshColorMaterialSafety : MonoBehaviour
     {
-        // Target mesh
-        private GameObject targetAvatar;
-        private SkinnedMeshRenderer targetMeshRenderer;
-        private Mesh targetMesh;
-        private MeshCollider tempCollider;
-        
-        // Available SkinnedMeshRenderers
-        private SkinnedMeshRenderer[] availableRenderers;
-        private int selectedRendererIndex = 0;
-        private Dictionary<SkinnedMeshRenderer, bool> originalRendererStates = new Dictionary<SkinnedMeshRenderer, bool>();
-        
-        // Selection
-        private bool isSelectionMode = false;
-        private bool isMultiSelectionMode = false;
-        private HashSet<int> selectedVertices = new HashSet<int>();
-        private List<int> selectedTriangles = new List<int>();
-        
-        // Multiple selection support
-        private List<MeshSelection> meshSelections = new List<MeshSelection>();
-        private int activeSelectionIndex = -1;
-        private Vector2 selectionScrollPos;
-        
-        // Editing
-        private Color blendColor = new Color(0.5f, 0.5f, 0.5f, 1f);
-        private float blendStrength = 0.5f;
-        private enum BlendMode { Additive, Multiply, Color, Overlay }
-        private BlendMode currentBlendMode = BlendMode.Color;
-        
-        // History
+        [SerializeField, HideInInspector]
         private Material originalMaterial;
-        private Texture2D originalTexture;
-        private List<EditHistory> editHistories = new List<EditHistory>();
         
-        // Safety component
-        private MeshColorMaterialSafety currentSafety;
-        private string windowGUID;
+        [SerializeField, HideInInspector]
+        private SkinnedMeshRenderer targetRenderer;
         
-        // Preview
-        private Material previewMaterial;
-        private bool showPreview = true;
-        private Texture2D previewTexture;
-        private bool needsPreviewUpdate = false;
+        [SerializeField, HideInInspector]
+        private bool isToolActive = false;
         
-        // Debug information
-        private string debugInfo = "";
-        private Vector3 lastRaycastPoint;
-        private bool lastRaycastHit = false;
+        [SerializeField, HideInInspector]
+        private string toolWindowGUID;
         
-        [MenuItem("VRChat Avatar Tools/Mesh Color Editor")]
-        public static void ShowWindow()
+        private static Dictionary<SkinnedMeshRenderer, MeshColorMaterialSafety> activeSafeties = new Dictionary<SkinnedMeshRenderer, MeshColorMaterialSafety>();
+        
+#if UNITY_EDITOR
+        /// <summary>
+        /// 編集開始時にセーフティコンポーネントを作成
+        /// </summary>
+        public static MeshColorMaterialSafety CreateSafety(SkinnedMeshRenderer renderer, Material originalMat, string windowGUID)
         {
-            MeshColorEditorWindow window = GetWindow<MeshColorEditorWindow>();
-            window.titleContent = new GUIContent("Mesh Color Editor");
-            window.minSize = new Vector2(400, 600);
+            if (renderer == null || originalMat == null) 
+            {
+                Debug.LogWarning("[MeshColorSafety] Cannot create safety: renderer or material is null");
+                return null;
+            }
+            
+            // 既存のセーフティがあれば削除
+            RemoveSafety(renderer);
+            
+            // 新しいセーフティコンポーネントを追加
+            MeshColorMaterialSafety safety = renderer.gameObject.AddComponent<MeshColorMaterialSafety>();
+            safety.originalMaterial = originalMat;
+            safety.targetRenderer = renderer;
+            safety.isToolActive = true;
+            safety.toolWindowGUID = windowGUID;
+            
+            // 辞書に登録
+            activeSafeties[renderer] = safety;
+            
+            // コンポーネントを隠す（インスペクターに表示しない）
+            // デバッグのため一時的にコメントアウト
+            // safety.hideFlags = HideFlags.HideInInspector;
+            
+            Debug.Log($"[MeshColorSafety] Safety component created for {renderer.name} on GameObject: {renderer.gameObject.name}");
+            Debug.Log($"[MeshColorSafety] Original material: {originalMat.name}");
+            Debug.Log($"[MeshColorSafety] Component count on object: {renderer.gameObject.GetComponents<Component>().Length}");
+            
+            return safety;
         }
         
+        /// <summary>
+        /// セーフティコンポーネントを削除
+        /// </summary>
+        public static void RemoveSafety(SkinnedMeshRenderer renderer)
+        {
+            if (renderer == null) 
+            {
+                Debug.Log("[MeshColorSafety] RemoveSafety called with null renderer");
+                return;
+            }
+            
+            // GameObjectに直接アタッチされているコンポーネントも確認
+            MeshColorMaterialSafety[] existingComponents = renderer.gameObject.GetComponents<MeshColorMaterialSafety>();
+            if (existingComponents.Length > 0)
+            {
+                Debug.Log($"[MeshColorSafety] Found {existingComponents.Length} safety components on {renderer.name}");
+                foreach (var comp in existingComponents)
+                {
+                    if (comp != null)
+                    {
+                        comp.RestoreOriginalMaterial();
+                        if (Application.isPlaying)
+                        {
+                            Destroy(comp);
+                        }
+                        else
+                        {
+                            DestroyImmediate(comp);
+                        }
+                    }
+                }
+            }
+            
+            if (activeSafeties.ContainsKey(renderer))
+            {
+                activeSafeties.Remove(renderer);
+                Debug.Log($"[MeshColorSafety] Safety removed from dictionary for {renderer.name}");
+            }
+        }
+        
+        /// <summary>
+        /// ツールがアクティブかチェック
+        /// </summary>
+        public void CheckToolStatus()
+        {
+            // MeshColorEditorWindowが存在するかチェック
+            bool windowExists = false;
+            
+            EditorWindow[] windows = Resources.FindObjectsOfTypeAll<EditorWindow>();
+            foreach (var window in windows)
+            {
+                if (window != null && window.GetType().Name == "MeshColorEditorWindow")
+                {
+                    // ウィンドウのGUIDをチェック（将来的な拡張用）
+                    windowExists = true;
+                    break;
+                }
+            }
+            
+            if (!windowExists && isToolActive)
+            {
+                Debug.Log($"[MeshColorSafety] Tool window not found, restoring material for {targetRenderer.name}");
+                RestoreAndRemove();
+            }
+        }
+#endif
+        
+        /// <summary>
+        /// 元のマテリアルに戻す
+        /// </summary>
+        private void RestoreOriginalMaterial()
+        {
+            if (targetRenderer != null && originalMaterial != null)
+            {
+                targetRenderer.sharedMaterial = originalMaterial;
+                Debug.Log($"[MeshColorSafety] Material restored for {targetRenderer.name}");
+            }
+        }
+        
+        /// <summary>
+        /// マテリアルを戻してコンポーネントを削除
+        /// </summary>
+        private void RestoreAndRemove()
+        {
+            RestoreOriginalMaterial();
+            isToolActive = false;
+            
+            if (targetRenderer != null && activeSafeties.ContainsKey(targetRenderer))
+            {
+                activeSafeties.Remove(targetRenderer);
+            }
+            
+            // 自身を削除
+            if (Application.isPlaying)
+            {
+                Destroy(this);
+            }
+            else
+            {
+                #if UNITY_EDITOR
+                DestroyImmediate(this);
+                #else
+                Destroy(this);
+                #endif
+            }
+        }
+        
+        private void Awake()
+        {
+            // エディタでのみ動作
+            if (Application.isPlaying)
+            {
+                Destroy(this);
+                return;
+            }
+        }
+        
+#if UNITY_EDITOR
         private void OnEnable()
         {
-            SceneView.duringSceneGui += OnSceneGUI;
-            windowGUID = System.Guid.NewGuid().ToString();
+            if (!Application.isPlaying)
+            {
+                EditorApplication.update += OnEditorUpdate;
+            }
         }
         
         private void OnDisable()
         {
-            SceneView.duringSceneGui -= OnSceneGUI;
-            CleanupPreview();
-            RemoveTempCollider();
-            RestoreAllMeshes();
-            RemoveSafetyComponent();
-        }
-        
-        private Vector2 mainScrollPosition;
-        
-        private void OnGUI()
-        {
-            EditorGUILayout.Space();
-            
-            EditorGUILayout.LabelField("VRChat Mesh Color Editor", EditorStyles.boldLabel);
-            EditorGUILayout.Space();
-            
-            mainScrollPosition = EditorGUILayout.BeginScrollView(mainScrollPosition);
-            
-            DrawTargetSelection();
-            
-            if (targetMeshRenderer == null)
+            if (!Application.isPlaying)
             {
-                EditorGUILayout.EndScrollView();
-                EditorGUILayout.HelpBox("Please select an avatar with SkinnedMeshRenderer", MessageType.Info);
-                return;
-            }
-            
-            EditorGUILayout.Space();
-            DrawSelectionMode();
-            
-            EditorGUILayout.Space();
-            DrawSelectionList();
-            
-            EditorGUILayout.Space();
-            DrawColorSettings();
-            
-            EditorGUILayout.Space();
-            DrawActions();
-            
-            EditorGUILayout.Space();
-            DrawHistory();
-            
-            EditorGUILayout.Space();
-            DrawDebugInfo();
-            
-            EditorGUILayout.EndScrollView();
-            
-            if (needsPreviewUpdate && showPreview && meshSelections.Count > 0)
-            {
-                UpdatePreview();
-                needsPreviewUpdate = false;
+                EditorApplication.update -= OnEditorUpdate;
             }
         }
         
-        private void DrawTargetSelection()
+        private float lastCheckTime = 0f;
+        private const float CHECK_INTERVAL = 1f; // 1秒ごとにチェック
+        
+        private void OnEditorUpdate()
         {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Target Mesh", EditorStyles.boldLabel);
+            if (!isToolActive) return;
             
-            EditorGUI.BeginChangeCheck();
-            targetAvatar = EditorGUILayout.ObjectField("Avatar", targetAvatar, typeof(GameObject), true) as GameObject;
-            
-            if (EditorGUI.EndChangeCheck() && targetAvatar != null)
+            // 定期的にツールの状態をチェック
+            if (Time.realtimeSinceStartup - lastCheckTime > CHECK_INTERVAL)
             {
-                availableRenderers = targetAvatar.GetComponentsInChildren<SkinnedMeshRenderer>();
-                
-                originalRendererStates.Clear();
-                foreach (var renderer in availableRenderers)
-                {
-                    originalRendererStates[renderer] = renderer.enabled;
-                }
-                
-                if (availableRenderers.Length > 0)
-                {
-                    selectedRendererIndex = 0;
-                    SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
-                }
-                else
-                {
-                    targetMeshRenderer = null;
-                    targetMesh = null;
-                    originalMaterial = null;
-                    originalTexture = null;
-                    EditorUtility.DisplayDialog("No SkinnedMeshRenderer", 
-                        "The selected avatar doesn't have any SkinnedMeshRenderer components.", "OK");
-                }
-                
-                ClearAllSelections();
+                lastCheckTime = Time.realtimeSinceStartup;
+                CheckToolStatus();
             }
-            
-            if (targetAvatar != null && availableRenderers != null && availableRenderers.Length > 0)
+        }
+        
+        /// <summary>
+        /// 全てのセーフティをクリーンアップ（エディタ終了時など）
+        /// </summary>
+        [InitializeOnLoadMethod]
+        private static void InitializeCleanup()
+        {
+            EditorApplication.quitting += CleanupAllSafeties;
+            AssemblyReloadEvents.beforeAssemblyReload += CleanupAllSafeties;
+        }
+        
+        private static void CleanupAllSafeties()
+        {
+            foreach (var kvp in activeSafeties)
             {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Select Mesh:", EditorStyles.boldLabel);
-                
-                string[] rendererNames = new string[availableRenderers.Length];
-                for (int i = 0; i < availableRenderers.Length; i++)
+                if (kvp.Value != null)
                 {
-                    rendererNames[i] = $"{i}: {availableRenderers[i].name}";
-                    if (availableRenderers[i].sharedMesh != null)
+                    kvp.Value.RestoreOriginalMaterial();
+                    if (Application.isPlaying)
                     {
-                        rendererNames[i] += $" ({availableRenderers[i].sharedMesh.name})";
-                    }
-                }
-                
-                EditorGUI.BeginChangeCheck();
-                selectedRendererIndex = EditorGUILayout.Popup("Mesh Renderer", selectedRendererIndex, rendererNames);
-                
-                if (EditorGUI.EndChangeCheck())
-                {
-                    SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
-                    ClearAllSelections();
-                }
-                
-                EditorGUILayout.Space();
-                bool hideOthers = EditorGUILayout.Toggle("Hide Other Meshes", IsOtherMeshesHidden());
-                
-                if (hideOthers)
-                {
-                    HideOtherMeshes();
-                }
-                else
-                {
-                    RestoreAllMeshes();
-                }
-            }
-            
-            if (targetMeshRenderer != null)
-            {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Mesh Info:", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("Mesh: " + targetMesh.name);
-                EditorGUILayout.LabelField("Vertices: " + targetMesh.vertexCount);
-                EditorGUILayout.LabelField("Material: " + (originalMaterial != null ? originalMaterial.name : "None"));
-                
-                if (originalTexture != null)
-                {
-                    bool isReadable = IsTextureReadable(originalTexture);
-                    EditorGUILayout.LabelField("Texture Readable: " + (isReadable ? "Yes" : "No (will copy)"), 
-                        isReadable ? EditorStyles.miniLabel : EditorStyles.miniBoldLabel);
-                }
-                
-                if (tempCollider != null)
-                {
-                    EditorGUILayout.LabelField("Status: Collider Ready", EditorStyles.miniLabel);
-                }
-            }
-            
-            EditorGUILayout.EndVertical();
-        }
-        
-        private void SelectMeshRenderer(SkinnedMeshRenderer renderer)
-        {
-            RemoveSafetyComponent();
-            
-            targetMeshRenderer = renderer;
-            
-            if (targetMeshRenderer != null)
-            {
-                targetMesh = targetMeshRenderer.sharedMesh;
-                originalMaterial = targetMeshRenderer.sharedMaterial;
-                
-                if (originalMaterial != null && originalMaterial.mainTexture != null)
-                {
-                    originalTexture = originalMaterial.mainTexture as Texture2D;
-                    
-                    if (!IsTextureReadable(originalTexture))
-                    {
-                        debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
-                    }
-                }
-                
-                SetupSafetyComponent();
-                SetupTempCollider();
-            }
-        }
-        
-        private bool IsOtherMeshesHidden()
-        {
-            if (availableRenderers == null || targetMeshRenderer == null) return false;
-            
-            foreach (var renderer in availableRenderers)
-            {
-                if (renderer != targetMeshRenderer && renderer.enabled)
-                {
-                    return false;
-                }
-            }
-            
-            return true;
-        }
-        
-        private void HideOtherMeshes()
-        {
-            if (availableRenderers == null || targetMeshRenderer == null) return;
-            
-            foreach (var renderer in availableRenderers)
-            {
-                if (renderer != targetMeshRenderer)
-                {
-                    renderer.enabled = false;
-                }
-                else
-                {
-                    renderer.enabled = true;
-                }
-            }
-            
-            SceneView.RepaintAll();
-        }
-        
-        private void RestoreAllMeshes()
-        {
-            if (availableRenderers == null) return;
-            
-            foreach (var renderer in availableRenderers)
-            {
-                if (originalRendererStates.ContainsKey(renderer))
-                {
-                    renderer.enabled = originalRendererStates[renderer];
-                }
-                else
-                {
-                    renderer.enabled = true;
-                }
-            }
-            
-            SceneView.RepaintAll();
-        }
-        
-        private void DrawSelectionMode()
-        {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Mesh Selection", EditorStyles.boldLabel);
-            
-            EditorGUI.BeginChangeCheck();
-            isSelectionMode = EditorGUILayout.Toggle("Selection Mode", isSelectionMode);
-            
-            if (EditorGUI.EndChangeCheck())
-            {
-                SceneView.RepaintAll();
-                
-                if (isSelectionMode)
-                {
-                    Tools.current = Tool.None;
-                    if (targetMeshRenderer != null && tempCollider == null)
-                    {
-                        SetupTempCollider();
-                    }
-                }
-                else
-                {
-                    Tools.current = Tool.Move;
-                }
-            }
-            
-            if (isSelectionMode)
-            {
-                EditorGUILayout.Space();
-                isMultiSelectionMode = EditorGUILayout.Toggle("Multi Selection Mode", isMultiSelectionMode);
-                
-                if (isMultiSelectionMode)
-                {
-                    EditorGUILayout.HelpBox("Click: Add to selection | Ctrl+Click: Remove from selection", MessageType.Info);
-                }
-                else
-                {
-                    EditorGUILayout.HelpBox("Click: Select new area", MessageType.Info);
-                }
-            }
-            
-            EditorGUILayout.LabelField("Total Selected Vertices: " + GetTotalSelectedVertices());
-            
-            if (GUILayout.Button("Clear All Selections"))
-            {
-                ClearAllSelections();
-            }
-            
-            if (targetMeshRenderer != null && tempCollider == null)
-            {
-                if (GUILayout.Button("Setup Collider (Debug)"))
-                {
-                    SetupTempCollider();
-                }
-            }
-            
-            EditorGUILayout.EndVertical();
-        }
-        
-        private void DrawSelectionList()
-        {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Mesh Selections", EditorStyles.boldLabel);
-            
-            if (meshSelections.Count == 0)
-            {
-                EditorGUILayout.LabelField("No areas selected", EditorStyles.miniLabel);
-            }
-            else
-            {
-                selectionScrollPos = EditorGUILayout.BeginScrollView(selectionScrollPos, GUILayout.Height(150));
-                
-                for (int i = 0; i < meshSelections.Count; i++)
-                {
-                    var selection = meshSelections[i];
-                    
-                    EditorGUILayout.BeginHorizontal();
-                    
-                    bool isActive = (i == activeSelectionIndex);
-                    GUI.backgroundColor = isActive ? Color.cyan : Color.white;
-                    
-                    if (GUILayout.Button($"Area {i + 1} ({selection.vertices.Count} verts)", 
-                        isActive ? EditorStyles.miniButtonMid : EditorStyles.miniButton))
-                    {
-                        SetActiveSelection(i);
-                    }
-                    
-                    GUI.backgroundColor = Color.white;
-                    
-                    selection.isEnabled = EditorGUILayout.Toggle(selection.isEnabled, GUILayout.Width(20));
-                    
-                    GUI.backgroundColor = Color.red;
-                    if (GUILayout.Button("X", GUILayout.Width(20)))
-                    {
-                        RemoveSelection(i);
-                    }
-                    GUI.backgroundColor = Color.white;
-                    
-                    EditorGUILayout.EndHorizontal();
-                }
-                
-                EditorGUILayout.EndScrollView();
-                EditorGUILayout.Space();
-            }
-            
-            EditorGUILayout.EndVertical();
-        }
-        
-        private void DrawColorSettings()
-        {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Color Settings", EditorStyles.boldLabel);
-            
-            EditorGUI.BeginChangeCheck();
-            blendColor = EditorGUILayout.ColorField("Blend Color", blendColor);
-            blendStrength = EditorGUILayout.Slider("Strength", blendStrength, 0f, 1f);
-            currentBlendMode = (BlendMode)EditorGUILayout.EnumPopup("Blend Mode", currentBlendMode);
-            
-            if (EditorGUI.EndChangeCheck())
-            {
-                needsPreviewUpdate = true;
-            }
-            
-            EditorGUI.BeginChangeCheck();
-            showPreview = EditorGUILayout.Toggle("Show Preview", showPreview);
-            
-            if (EditorGUI.EndChangeCheck())
-            {
-                if (showPreview && meshSelections.Count > 0)
-                {
-                    needsPreviewUpdate = true;
-                }
-                else if (!showPreview)
-                {
-                    RemovePreview();
-                }
-            }
-            
-            EditorGUILayout.HelpBox(GetBlendModeDescription(), MessageType.Info);
-            
-            EditorGUILayout.EndVertical();
-        }
-        
-        private string GetBlendModeDescription()
-        {
-            switch (currentBlendMode)
-            {
-                case BlendMode.Additive:
-                    return "Adds color values (brightens)";
-                case BlendMode.Multiply:
-                    return "Multiplies color values (darkens)";
-                case BlendMode.Color:
-                    return "Applies hue and saturation while preserving luminance (Photoshop Color mode)";
-                case BlendMode.Overlay:
-                    return "Combines multiply and screen based on base color";
-                default:
-                    return "";
-            }
-        }
-        
-        private void DrawActions()
-        {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Actions", EditorStyles.boldLabel);
-            
-            GUI.enabled = meshSelections.Count > 0 && originalTexture != null;
-            
-            if (GUILayout.Button("Apply Color", GUILayout.Height(30)))
-            {
-                ApplyColorToSelection();
-            }
-            
-            if (GUILayout.Button("Export Mask Texture", GUILayout.Height(30)))
-            {
-                ExportMaskTexture();
-            }
-            
-            GUI.enabled = true;
-            
-            if (GUILayout.Button("Reset to Original"))
-            {
-                ResetToOriginal();
-            }
-            
-            EditorGUILayout.EndVertical();
-        }
-        
-        private void DrawHistory()
-        {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Edit History", EditorStyles.boldLabel);
-            
-            if (editHistories.Count == 0)
-            {
-                EditorGUILayout.LabelField("No edits yet");
-            }
-            else
-            {
-                for (int i = editHistories.Count - 1; i >= 0; i--)
-                {
-                    var history = editHistories[i];
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField($"{i + 1}. {history.timestamp}");
-                    
-                    if (GUILayout.Button("Revert", GUILayout.Width(60)))
-                    {
-                        RevertToHistory(history);
-                    }
-                    
-                    EditorGUILayout.EndHorizontal();
-                }
-            }
-            
-            EditorGUILayout.EndVertical();
-        }
-        
-        private void DrawDebugInfo()
-        {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Debug Information", EditorStyles.boldLabel);
-            
-            EditorGUILayout.TextArea(debugInfo, GUILayout.Height(100));
-            
-            if (GUILayout.Button("Clear Debug"))
-            {
-                debugInfo = "";
-            }
-            
-            EditorGUILayout.EndVertical();
-        }
-        
-        private void OnSceneGUI(SceneView sceneView)
-        {
-            if (!isSelectionMode || targetMeshRenderer == null) return;
-            
-            Event e = Event.current;
-            
-            if (isSelectionMode)
-            {
-                HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
-                EditorGUIUtility.AddCursorRect(new Rect(0, 0, sceneView.position.width, sceneView.position.height), MouseCursor.CustomCursor);
-            }
-            
-            if (e.type == EventType.MouseMove && isSelectionMode)
-            {
-                Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-                debugInfo = $"Mouse Ray Origin: {ray.origin}\n";
-                debugInfo += $"Mouse Ray Direction: {ray.direction}\n";
-                if (this != null) Repaint();
-            }
-            
-            if (e.type == EventType.MouseDown && e.button == 0 && isSelectionMode)
-            {
-                bool isCtrlHeld = e.control;
-                
-                debugInfo += "\n=== CLICK EVENT ===\n";
-                debugInfo += $"Multi Selection Mode: {isMultiSelectionMode}\n";
-                debugInfo += $"Ctrl key: {isCtrlHeld}\n";
-                Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-                debugInfo += $"Click Position: {e.mousePosition}\n";
-                debugInfo += $"Ray: {ray.origin} -> {ray.direction}\n";
-                
-                if (tempCollider != null && targetMeshRenderer != null)
-                {
-                    Mesh bakedMesh = new Mesh();
-                    targetMeshRenderer.BakeMesh(bakedMesh);
-                    tempCollider.sharedMesh = bakedMesh;
-                    debugInfo += "Mesh baked for current pose\n";
-                }
-                
-                RaycastHit hit;
-                
-                if (Physics.Raycast(ray, out hit))
-                {
-                    debugInfo += $"Physics.Raycast HIT: {hit.collider.gameObject.name}\n";
-                    debugInfo += $"Hit Point: {hit.point}\n";
-                    debugInfo += $"Hit Distance: {hit.distance}\n";
-                    
-                    if (hit.collider == tempCollider)
-                    {
-                        debugInfo += "HIT TEMP COLLIDER! Selecting area...\n";
-                        SelectMeshArea(hit.point);
-                        lastRaycastPoint = hit.point;
-                        lastRaycastHit = true;
-                    }
-                    else if (hit.collider.gameObject == targetMeshRenderer.gameObject)
-                    {
-                        debugInfo += "HIT TARGET MESH! Selecting area...\n";
-                        SelectMeshArea(hit.point);
-                        lastRaycastPoint = hit.point;
-                        lastRaycastHit = true;
+                        Destroy(kvp.Value);
                     }
                     else
                     {
-                        debugInfo += $"Hit wrong object. Expected: {targetMeshRenderer.gameObject.name}\n";
-                    }
-                }
-                else
-                {
-                    debugInfo += "Physics.Raycast MISSED\n";
-                    
-                    if (Physics.Raycast(ray, out hit, 1000f))
-                    {
-                        debugInfo += $"Long distance raycast HIT: {hit.collider.gameObject.name}\n";
-                    }
-                }
-                
-                if (tempCollider == null)
-                {
-                    debugInfo += "WARNING: Temp collider is NULL!\n";
-                }
-                else
-                {
-                    debugInfo += $"Temp collider exists: {tempCollider.gameObject.name}\n";
-                    debugInfo += $"Collider enabled: {tempCollider.enabled}\n";
-                    debugInfo += $"Mesh assigned: {tempCollider.sharedMesh != null}\n";
-                }
-                
-                if (this != null) Repaint();
-                e.Use();
-            }
-            
-            if (e.type == EventType.MouseUp && e.button == 0 && isSelectionMode)
-            {
-                e.Use();
-            }
-            
-            if (showPreview)
-            {
-                DrawAllSelections();
-            }
-            
-            if (lastRaycastHit)
-            {
-                Handles.color = Color.red;
-                Handles.DrawWireCube(lastRaycastPoint, Vector3.one * 0.05f);
-            }
-        }
-        
-        private void SelectMeshArea(Vector3 hitPoint)
-        {
-            if (targetMesh == null) return;
-            
-            debugInfo += "\n--- SelectMeshArea CALLED ---\n";
-            debugInfo += $"Hit Point: {hitPoint}\n";
-            
-            Event currentEvent = Event.current;
-            bool isCtrlHeld = currentEvent != null ? currentEvent.control : false;
-            
-            Camera sceneCamera = SceneView.lastActiveSceneView?.camera;
-            if (sceneCamera == null) return;
-            
-            Vector3 cameraPosition = sceneCamera.transform.position;
-            Vector3 cameraForward = sceneCamera.transform.forward;
-            
-            Vector3[] vertices = targetMesh.vertices;
-            Vector3[] normals = targetMesh.normals;
-            Transform meshTransform = targetMeshRenderer.transform;
-            
-            debugInfo += $"Total vertices: {vertices.Length}\n";
-            debugInfo += $"Camera position: {cameraPosition}\n";
-            
-            List<VertexCandidate> candidates = new List<VertexCandidate>();
-            float threshold = 0.001f;
-            
-            for (int i = 0; i < vertices.Length; i++)
-            {
-                Vector3 worldPos = meshTransform.TransformPoint(vertices[i]);
-                float distance = Vector3.Distance(worldPos, hitPoint);
-                
-                candidates.Add(new VertexCandidate
-                {
-                    index = i,
-                    worldPosition = worldPos,
-                    distance = distance
-                });
-            }
-            
-            candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
-            
-            if (candidates.Count == 0) return;
-            
-            float minDistance = candidates[0].distance;
-            List<VertexCandidate> closestVertices = new List<VertexCandidate>();
-            
-            for (int i = 0; i < candidates.Count; i++)
-            {
-                if (candidates[i].distance <= minDistance + threshold)
-                {
-                    closestVertices.Add(candidates[i]);
-                }
-                else
-                {
-                    break;
-                }
-            }
-            
-            debugInfo += $"Found {closestVertices.Count} vertices within threshold\n";
-            
-            int selectedVertex = -1;
-            float bestDot = -1f;
-            
-            for (int i = 0; i < closestVertices.Count; i++)
-            {
-                int vertexIndex = closestVertices[i].index;
-                Vector3 worldNormal = meshTransform.TransformDirection(normals[vertexIndex]).normalized;
-                Vector3 toCameraDirection = (cameraPosition - closestVertices[i].worldPosition).normalized;
-                
-                float dot = Vector3.Dot(worldNormal, toCameraDirection);
-                
-                debugInfo += $"Vertex {vertexIndex}: dot = {dot:F3}\n";
-                
-                if (dot > bestDot)
-                {
-                    bestDot = dot;
-                    selectedVertex = vertexIndex;
-                }
-            }
-            
-            debugInfo += $"Selected vertex: {selectedVertex} (dot: {bestDot:F3})\n";
-            
-            if (selectedVertex >= 0)
-            {
-                selectedVertices.Clear();
-                selectedTriangles.Clear();
-                
-                HashSet<int> visited = new HashSet<int>();
-                Queue<int> queue = new Queue<int>();
-                
-                queue.Enqueue(selectedVertex);
-                visited.Add(selectedVertex);
-                
-                int[] triangles = targetMesh.triangles;
-                debugInfo += $"Total triangles: {triangles.Length / 3}\n";
-                
-                int processedCount = 0;
-                bool isFirstVertex = true;
-                
-                while (queue.Count > 0 && processedCount < 1000)
-                {
-                    processedCount++;
-                    int currentVertex = queue.Dequeue();
-                    selectedVertices.Add(currentVertex);
-                    
-                    for (int i = 0; i < triangles.Length; i += 3)
-                    {
-                        bool containsVertex = false;
-                        
-                        for (int j = 0; j < 3; j++)
-                        {
-                            if (triangles[i + j] == currentVertex)
-                            {
-                                containsVertex = true;
-                                break;
-                            }
-                        }
-                        
-                        if (containsVertex)
-                        {
-                            bool shouldIncludeTriangle = true;
-                            
-                            if (isFirstVertex)
-                            {
-                                Vector3 v0 = meshTransform.TransformPoint(vertices[triangles[i]]);
-                                Vector3 v1 = meshTransform.TransformPoint(vertices[triangles[i + 1]]);
-                                Vector3 v2 = meshTransform.TransformPoint(vertices[triangles[i + 2]]);
-                                
-                                Vector3 triangleNormal = Vector3.Cross(v1 - v0, v2 - v0).normalized;
-                                Vector3 triangleCenter = (v0 + v1 + v2) / 3f;
-                                Vector3 toCameraFromTriangle = (cameraPosition - triangleCenter).normalized;
-                                
-                                float triangleDot = Vector3.Dot(triangleNormal, toCameraFromTriangle);
-                                
-                                shouldIncludeTriangle = triangleDot > 0.1f;
-                            }
-                            
-                            if (shouldIncludeTriangle)
-                            {
-                                selectedTriangles.Add(i / 3);
-                                
-                                for (int j = 0; j < 3; j++)
-                                {
-                                    int vertexIndex = triangles[i + j];
-                                    if (!visited.Contains(vertexIndex))
-                                    {
-                                        visited.Add(vertexIndex);
-                                        queue.Enqueue(vertexIndex);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    isFirstVertex = false;
-                }
-                
-                debugInfo += $"Selected vertices: {selectedVertices.Count}\n";
-                debugInfo += $"Selected triangles: {selectedTriangles.Count}\n";
-                debugInfo += $"Processed iterations: {processedCount}\n";
-                
-                if (isMultiSelectionMode)
-                {
-                    if (isCtrlHeld)
-                    {
-                        debugInfo += "Multi Mode: Removing from selection\n";
-                        RemoveVerticesFromSelections(selectedVertices);
-                    }
-                    else
-                    {
-                        int overlappingSelectionIndex = FindOverlappingSelection(selectedVertices);
-                        
-                        if (overlappingSelectionIndex >= 0)
-                        {
-                            debugInfo += $"Multi Mode: Removing overlapping selection {overlappingSelectionIndex}\n";
-                            RemoveSelection(overlappingSelectionIndex);
-                        }
-                        else
-                        {
-                            debugInfo += "Multi Mode: Adding to selection\n";
-                            var newSelection = new MeshSelection
-                            {
-                                vertices = new HashSet<int>(selectedVertices),
-                                triangles = new List<int>(selectedTriangles)
-                            };
-                            
-                            meshSelections.Add(newSelection);
-                            activeSelectionIndex = meshSelections.Count - 1;
-                        }
-                    }
-                }
-                else
-                {
-                    debugInfo += "Normal Mode: Replacing selection\n";
-                    meshSelections.Clear();
-                    
-                    var newSelection = new MeshSelection
-                    {
-                        vertices = new HashSet<int>(selectedVertices),
-                        triangles = new List<int>(selectedTriangles)
-                    };
-                    
-                    meshSelections.Add(newSelection);
-                    activeSelectionIndex = meshSelections.Count - 1;
-                }
-                
-                debugInfo += $"Total selections: {meshSelections.Count}\n";
-                
-                if (showPreview)
-                {
-                    needsPreviewUpdate = true;
-                }
-                
-                EditorApplication.delayCall += () => {
-                    if (this != null) Repaint();
-                };
-                SceneView.RepaintAll();
-            }
-        }
-        
-        private void DrawAllSelections()
-        {
-            if (targetMeshRenderer == null) return;
-            
-            Transform meshTransform = targetMeshRenderer.transform;
-            Vector3[] vertices = targetMesh.vertices;
-            
-            for (int i = 0; i < meshSelections.Count; i++)
-            {
-                var selection = meshSelections[i];
-                bool isActive = (i == activeSelectionIndex);
-                
-                Color baseColor = Color.HSVToRGB((float)i / Mathf.Max(meshSelections.Count, 1f), 0.8f, 1f);
-                baseColor.a = isActive ? 0.8f : 0.4f;
-                Handles.color = baseColor;
-                
-                foreach (int vertexIndex in selection.vertices)
-                {
-                    if (vertexIndex < vertices.Length)
-                    {
-                        Vector3 worldPos = meshTransform.TransformPoint(vertices[vertexIndex]);
-                        float size = isActive ? 0.004f : 0.002f;
-                        Handles.SphereHandleCap(0, worldPos, Quaternion.identity, size, EventType.Repaint);
+                        DestroyImmediate(kvp.Value);
                     }
                 }
             }
+            activeSafeties.Clear();
         }
+#endif
         
-        private void ApplyColorToSelection()
+        private void OnDestroy()
         {
-            if (originalTexture == null || meshSelections.Count == 0) return;
-            
-            RemovePreview();
-            
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string newTexturePath = $"Assets/GeneratedTextures/{originalTexture.name}_edited_{timestamp}.png";
-            
-            if (!AssetDatabase.IsValidFolder("Assets/GeneratedTextures"))
+            // コンポーネントが削除される時、元のマテリアルに戻す
+            if (!Application.isPlaying && isToolActive)
             {
-                AssetDatabase.CreateFolder("Assets", "GeneratedTextures");
-            }
-            
-            Texture2D newTexture = CreateModifiedTextureWithAllSelections();
-            
-            if (newTexture == null)
-            {
-                EditorUtility.DisplayDialog("Error", "Failed to create texture. Please check if the original texture has Read/Write enabled.", "OK");
-                return;
-            }
-            
-            byte[] pngData = newTexture.EncodeToPNG();
-            System.IO.File.WriteAllBytes(newTexturePath, pngData);
-            AssetDatabase.Refresh();
-            
-            TextureImporter importer = AssetImporter.GetAtPath(newTexturePath) as TextureImporter;
-            if (importer != null)
-            {
-                importer.textureType = TextureImporterType.Default;
-                importer.sRGBTexture = true;
-                importer.textureCompression = TextureImporterCompression.Uncompressed;
-                importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
-                importer.SaveAndReimport();
-            }
-            
-            Texture2D savedTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(newTexturePath);
-            
-            string newMaterialPath = $"Assets/GeneratedMaterials/{originalMaterial.name}_edited_{timestamp}.mat";
-            
-            if (!AssetDatabase.IsValidFolder("Assets/GeneratedMaterials"))
-            {
-                AssetDatabase.CreateFolder("Assets", "GeneratedMaterials");
-            }
-            
-            Material newMaterial = new Material(originalMaterial);
-            newMaterial.mainTexture = savedTexture;
-            
-            AssetDatabase.CreateAsset(newMaterial, newMaterialPath);
-            AssetDatabase.SaveAssets();
-            
-            targetMeshRenderer.sharedMaterial = newMaterial;
-            
-            EditHistory history = new EditHistory
-            {
-                timestamp = timestamp,
-                material = newMaterial,
-                texture = savedTexture,
-                selectedVertices = new HashSet<int>(selectedVertices)
-            };
-            
-            editHistories.Add(history);
-            ClearAllSelections();
-            
-            debugInfo += $"\nTexture saved: {newTexturePath}\n";
-            debugInfo += $"Material saved: {newMaterialPath}\n";
-        }
-        
-        private bool IsTextureReadable(Texture2D texture)
-        {
-            try
-            {
-                texture.GetPixel(0, 0);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-        
-        private Texture2D GetReadableTexture(Texture2D source)
-        {
-            RenderTexture tmp = RenderTexture.GetTemporary(
-                source.width,
-                source.height,
-                0,
-                RenderTextureFormat.ARGB32,
-                RenderTextureReadWrite.sRGB
-            );
-            
-            Graphics.Blit(source, tmp);
-            
-            RenderTexture previous = RenderTexture.active;
-            RenderTexture.active = tmp;
-            
-            Texture2D readableTexture = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
-            readableTexture.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
-            readableTexture.Apply();
-            
-            RenderTexture.active = previous;
-            RenderTexture.ReleaseTemporary(tmp);
-            
-            return readableTexture;
-        }
-        
-        private Texture2D CreateModifiedTextureWithAllSelections()
-        {
-            Texture2D workingTexture;
-            
-            if (IsTextureReadable(originalTexture))
-            {
-                debugInfo += "Using original texture (readable)\n";
-                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
-                workingTexture.SetPixels(originalTexture.GetPixels());
-                workingTexture.Apply();
-            }
-            else
-            {
-                debugInfo += "Creating readable copy of texture\n";
-                workingTexture = GetReadableTexture(originalTexture);
-            }
-            
-            Vector2[] uvs = targetMesh.uv;
-            
-            foreach (var selection in meshSelections)
-            {
-                if (!selection.isEnabled) continue;
+                RestoreOriginalMaterial();
                 
-                HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
-                
-                foreach (int triangleIndex in selection.triangles)
+                if (targetRenderer != null && activeSafeties.ContainsKey(targetRenderer))
                 {
-                    int baseIndex = triangleIndex * 3;
-                    int[] triangles = targetMesh.triangles;
-                    
-                    if (baseIndex + 2 < triangles.Length)
-                    {
-                        Vector2 uv0 = uvs[triangles[baseIndex]];
-                        Vector2 uv1 = uvs[triangles[baseIndex + 1]];
-                        Vector2 uv2 = uvs[triangles[baseIndex + 2]];
-                        
-                        PaintTriangleOnTextureWithColor(workingTexture, uv0, uv1, uv2, paintedPixels, blendColor, blendStrength);
-                    }
+                    activeSafeties.Remove(targetRenderer);
                 }
             }
-            
-            workingTexture.Apply();
-            return workingTexture;
-        }
-        
-        private void PaintTriangleOnTextureWithColor(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, 
-            HashSet<Vector2Int> paintedPixels, Color color, float strength)
-        {
-            int x0 = Mathf.RoundToInt(uv0.x * (texture.width - 1));
-            int y0 = Mathf.RoundToInt(uv0.y * (texture.height - 1));
-            int x1 = Mathf.RoundToInt(uv1.x * (texture.width - 1));
-            int y1 = Mathf.RoundToInt(uv1.y * (texture.height - 1));
-            int x2 = Mathf.RoundToInt(uv2.x * (texture.width - 1));
-            int y2 = Mathf.RoundToInt(uv2.y * (texture.height - 1));
-            
-            int minX = Mathf.Max(0, Mathf.Min(x0, Mathf.Min(x1, x2)));
-            int maxX = Mathf.Min(texture.width - 1, Mathf.Max(x0, Mathf.Max(x1, x2)));
-            int minY = Mathf.Max(0, Mathf.Min(y0, Mathf.Min(y1, y2)));
-            int maxY = Mathf.Min(texture.height - 1, Mathf.Max(y0, Mathf.Max(y1, y2)));
-            
-            for (int x = minX; x <= maxX; x++)
-            {
-                for (int y = minY; y <= maxY; y++)
-                {
-                    Vector2Int pixelCoord = new Vector2Int(x, y);
-                    
-                    if (!paintedPixels.Contains(pixelCoord) && IsPointInTriangle(x, y, x0, y0, x1, y1, x2, y2))
-                    {
-                        paintedPixels.Add(pixelCoord);
-                        Color originalColor = texture.GetPixel(x, y);
-                        Color blendedColor = ApplyBlendMode(originalColor, color, currentBlendMode, strength);
-                        texture.SetPixel(x, y, blendedColor);
-                    }
-                }
-            }
-        }
-        
-        private Color ApplyBlendMode(Color baseColor, Color blendColor, BlendMode mode, float strength)
-        {
-            Color result = baseColor;
-            
-            switch (mode)
-            {
-                case BlendMode.Additive:
-                    result = baseColor + blendColor * strength;
-                    break;
-                    
-                case BlendMode.Multiply:
-                    result = Color.Lerp(baseColor, baseColor * blendColor, strength);
-                    break;
-                    
-                case BlendMode.Color:
-                    float baseLuminance = GetLuminance(baseColor);
-                    Color colorized = SetLuminance(blendColor, baseLuminance);
-                    result = Color.Lerp(baseColor, colorized, strength);
-                    break;
-                    
-                case BlendMode.Overlay:
-                    result = new Color(
-                        OverlayChannel(baseColor.r, blendColor.r, strength),
-                        OverlayChannel(baseColor.g, blendColor.g, strength),
-                        OverlayChannel(baseColor.b, blendColor.b, strength),
-                        baseColor.a
-                    );
-                    break;
-            }
-            
-            result.r = Mathf.Clamp01(result.r);
-            result.g = Mathf.Clamp01(result.g);
-            result.b = Mathf.Clamp01(result.b);
-            result.a = baseColor.a;
-            
-            return result;
-        }
-        
-        private float GetLuminance(Color color)
-        {
-            return 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
-        }
-        
-        private Color SetLuminance(Color color, float targetLuminance)
-        {
-            float currentLuminance = GetLuminance(color);
-            
-            if (currentLuminance <= 0.0001f)
-            {
-                return new Color(targetLuminance, targetLuminance, targetLuminance, color.a);
-            }
-            
-            float scale = targetLuminance / currentLuminance;
-            
-            Color result = new Color(
-                color.r * scale,
-                color.g * scale,
-                color.b * scale,
-                color.a
-            );
-            
-            float maxComponent = Mathf.Max(result.r, Mathf.Max(result.g, result.b));
-            if (maxComponent > 1.0f)
-            {
-                float desaturation = (maxComponent - 1.0f) / (maxComponent - targetLuminance);
-                result = Color.Lerp(result, new Color(targetLuminance, targetLuminance, targetLuminance, color.a), desaturation);
-            }
-            
-            return result;
-        }
-        
-        private float OverlayChannel(float baseValue, float blendValue, float strength)
-        {
-            float result;
-            if (baseValue < 0.5f)
-            {
-                result = 2.0f * baseValue * blendValue;
-            }
-            else
-            {
-                result = 1.0f - 2.0f * (1.0f - baseValue) * (1.0f - blendValue);
-            }
-            return Mathf.Lerp(baseValue, result, strength);
-        }
-        
-        private bool IsPointInTriangle(int px, int py, int x0, int y0, int x1, int y1, int x2, int y2)
-        {
-            float area = 0.5f * (-y1 * x2 + y0 * (-x1 + x2) + x0 * (y1 - y2) + x1 * y2);
-            float s = 1 / (2 * area) * (y0 * x2 - x0 * y2 + (y2 - y0) * px + (x0 - x2) * py);
-            float t = 1 / (2 * area) * (x0 * y1 - y0 * x1 + (y0 - y1) * px + (x1 - x0) * py);
-            
-            return s >= 0 && t >= 0 && (s + t) <= 1;
-        }
-        
-        private void ExportMaskTexture()
-        {
-            if (originalTexture == null || meshSelections.Count == 0) return;
-            
-            RemovePreview();
-            
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string maskTexturePath = $"Assets/GeneratedTextures/{originalTexture.name}_mask_{timestamp}.png";
-            
-            if (!AssetDatabase.IsValidFolder("Assets/GeneratedTextures"))
-            {
-                AssetDatabase.CreateFolder("Assets", "GeneratedTextures");
-            }
-            
-            Texture2D maskTexture = CreateMaskTexture();
-            
-            if (maskTexture == null)
-            {
-                EditorUtility.DisplayDialog("Error", "Failed to create mask texture. Please check if the original texture has Read/Write enabled.", "OK");
-                return;
-            }
-            
-            byte[] pngData = maskTexture.EncodeToPNG();
-            System.IO.File.WriteAllBytes(maskTexturePath, pngData);
-            AssetDatabase.Refresh();
-            
-            TextureImporter importer = AssetImporter.GetAtPath(maskTexturePath) as TextureImporter;
-            if (importer != null)
-            {
-                importer.textureType = TextureImporterType.Default;
-                importer.sRGBTexture = false;
-                importer.textureCompression = TextureImporterCompression.Uncompressed;
-                importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
-                importer.SaveAndReimport();
-            }
-            
-            debugInfo += $"\nMask texture saved: {maskTexturePath}\n";
-            
-            EditorUtility.DisplayDialog("Mask Export Complete", 
-                $"Mask texture has been exported to:\n{maskTexturePath}\n\nWhite areas represent selected regions, black areas are unselected.", 
-                "OK");
-        }
-        
-        private Texture2D CreateMaskTexture()
-        {
-            Texture2D workingTexture;
-            
-            if (IsTextureReadable(originalTexture))
-            {
-                debugInfo += "Creating mask texture based on original dimensions\n";
-                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
-                
-                Color[] blackPixels = new Color[originalTexture.width * originalTexture.height];
-                for (int i = 0; i < blackPixels.Length; i++)
-                {
-                    blackPixels[i] = Color.black;
-                }
-                workingTexture.SetPixels(blackPixels);
-            }
-            else
-            {
-                debugInfo += "Creating mask texture using readable copy\n";
-                Texture2D readableOriginal = GetReadableTexture(originalTexture);
-                workingTexture = new Texture2D(readableOriginal.width, readableOriginal.height, TextureFormat.ARGB32, false);
-                
-                Color[] blackPixels = new Color[readableOriginal.width * readableOriginal.height];
-                for (int i = 0; i < blackPixels.Length; i++)
-                {
-                    blackPixels[i] = Color.black;
-                }
-                workingTexture.SetPixels(blackPixels);
-                
-                DestroyImmediate(readableOriginal);
-            }
-            
-            Vector2[] uvs = targetMesh.uv;
-            
-            foreach (var selection in meshSelections)
-            {
-                if (!selection.isEnabled) continue;
-                
-                HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
-                
-                foreach (int triangleIndex in selection.triangles)
-                {
-                    int baseIndex = triangleIndex * 3;
-                    int[] triangles = targetMesh.triangles;
-                    
-                    if (baseIndex + 2 < triangles.Length)
-                    {
-                        Vector2 uv0 = uvs[triangles[baseIndex]];
-                        Vector2 uv1 = uvs[triangles[baseIndex + 1]];
-                        Vector2 uv2 = uvs[triangles[baseIndex + 2]];
-                        
-                        PaintTriangleOnMask(workingTexture, uv0, uv1, uv2, paintedPixels);
-                    }
-                }
-            }
-            
-            workingTexture.Apply();
-            return workingTexture;
-        }
-        
-        private void PaintTriangleOnMask(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, HashSet<Vector2Int> paintedPixels)
-        {
-            int x0 = Mathf.RoundToInt(uv0.x * (texture.width - 1));
-            int y0 = Mathf.RoundToInt(uv0.y * (texture.height - 1));
-            int x1 = Mathf.RoundToInt(uv1.x * (texture.width - 1));
-            int y1 = Mathf.RoundToInt(uv1.y * (texture.height - 1));
-            int x2 = Mathf.RoundToInt(uv2.x * (texture.width - 1));
-            int y2 = Mathf.RoundToInt(uv2.y * (texture.height - 1));
-            
-            int minX = Mathf.Max(0, Mathf.Min(x0, Mathf.Min(x1, x2)));
-            int maxX = Mathf.Min(texture.width - 1, Mathf.Max(x0, Mathf.Max(x1, x2)));
-            int minY = Mathf.Max(0, Mathf.Min(y0, Mathf.Min(y1, y2)));
-            int maxY = Mathf.Min(texture.height - 1, Mathf.Max(y0, Mathf.Max(y1, y2)));
-            
-            for (int x = minX; x <= maxX; x++)
-            {
-                for (int y = minY; y <= maxY; y++)
-                {
-                    Vector2Int pixelCoord = new Vector2Int(x, y);
-                    
-                    if (!paintedPixels.Contains(pixelCoord) && IsPointInTriangle(x, y, x0, y0, x1, y1, x2, y2))
-                    {
-                        paintedPixels.Add(pixelCoord);
-                        texture.SetPixel(x, y, Color.white);
-                    }
-                }
-            }
-        }
-        
-        private void ResetToOriginal()
-        {
-            if (originalMaterial != null && targetMeshRenderer != null)
-            {
-                targetMeshRenderer.sharedMaterial = originalMaterial;
-                RemovePreview();
-            }
-        }
-        
-        private void RevertToHistory(EditHistory history)
-        {
-            if (targetMeshRenderer != null && history.material != null)
-            {
-                targetMeshRenderer.sharedMaterial = history.material;
-                selectedVertices = new HashSet<int>(history.selectedVertices);
-                SceneView.RepaintAll();
-            }
-        }
-        
-        private void SetupTempCollider()
-        {
-            if (targetMeshRenderer == null || targetMesh == null) return;
-            
-            RemoveTempCollider();
-            
-            debugInfo += "\n=== SETUP TEMP COLLIDER ===\n";
-            
-            GameObject tempObject = new GameObject("TempMeshCollider");
-            tempObject.transform.SetParent(targetMeshRenderer.transform, false);
-            tempObject.layer = targetMeshRenderer.gameObject.layer;
-            
-            debugInfo += $"Created temp object: {tempObject.name}\n";
-            
-            tempCollider = tempObject.AddComponent<MeshCollider>();
-            
-            Mesh bakedMesh = new Mesh();
-            targetMeshRenderer.BakeMesh(bakedMesh);
-            tempCollider.sharedMesh = bakedMesh;
-            
-            debugInfo += $"Baked mesh vertices: {bakedMesh.vertexCount}\n";
-            debugInfo += $"Collider enabled: {tempCollider.enabled}\n";
-            
-            tempObject.hideFlags = HideFlags.HideAndDontSave;
-            
-            debugInfo += "Temporary collider created for raycasting\n";
-            
-            EditorApplication.delayCall += () => {
-                if (this != null) Repaint();
-            };
-        }
-        
-        private void RemoveTempCollider()
-        {
-            if (tempCollider != null)
-            {
-                if (Application.isPlaying)
-                {
-                    Destroy(tempCollider.gameObject);
-                }
-                else
-                {
-                    DestroyImmediate(tempCollider.gameObject);
-                }
-                tempCollider = null;
-            }
-        }
-        
-        private void UpdatePreview()
-        {
-            if (targetMeshRenderer == null || originalTexture == null) return;
-            
-            if (previewMaterial == null)
-            {
-                previewMaterial = new Material(originalMaterial);
-                previewMaterial.name = "Mesh Color Editor Preview";
-            }
-            
-            if (previewTexture != null)
-            {
-                DestroyImmediate(previewTexture);
-            }
-            
-            previewTexture = CreateModifiedTextureWithAllSelections();
-            previewMaterial.mainTexture = previewTexture;
-            
-            targetMeshRenderer.sharedMaterial = previewMaterial;
-            
-            debugInfo += "Preview updated\n";
-        }
-        
-        private void RemovePreview()
-        {
-            if (targetMeshRenderer != null && originalMaterial != null)
-            {
-                targetMeshRenderer.sharedMaterial = originalMaterial;
-            }
-            
-            if (previewTexture != null)
-            {
-                DestroyImmediate(previewTexture);
-                previewTexture = null;
-            }
-        }
-        
-        private void ClearAllSelections()
-        {
-            meshSelections.Clear();
-            activeSelectionIndex = -1;
-            selectedVertices.Clear();
-            selectedTriangles.Clear();
-            RemovePreview();
-            SceneView.RepaintAll();
-        }
-        
-        private void CleanupPreview()
-        {
-            RemovePreview();
-            
-            if (previewMaterial != null)
-            {
-                DestroyImmediate(previewMaterial);
-                previewMaterial = null;
-            }
-        }
-        
-        private int GetTotalSelectedVertices()
-        {
-            HashSet<int> allVertices = new HashSet<int>();
-            foreach (var selection in meshSelections)
-            {
-                allVertices.UnionWith(selection.vertices);
-            }
-            return allVertices.Count;
-        }
-        
-        private void SetActiveSelection(int index)
-        {
-            if (index >= 0 && index < meshSelections.Count)
-            {
-                activeSelectionIndex = index;
-                var selection = meshSelections[index];
-                selectedVertices = new HashSet<int>(selection.vertices);
-                selectedTriangles = new List<int>(selection.triangles);
-                
-                if (showPreview)
-                {
-                    needsPreviewUpdate = true;
-                }
-                
-                SceneView.RepaintAll();
-            }
-        }
-        
-        private void RemoveSelection(int index)
-        {
-            if (index >= 0 && index < meshSelections.Count)
-            {
-                meshSelections.RemoveAt(index);
-                
-                if (activeSelectionIndex >= meshSelections.Count)
-                {
-                    activeSelectionIndex = meshSelections.Count - 1;
-                }
-                
-                if (activeSelectionIndex >= 0)
-                {
-                    SetActiveSelection(activeSelectionIndex);
-                }
-                else
-                {
-                    selectedVertices.Clear();
-                    selectedTriangles.Clear();
-                    RemovePreview();
-                }
-                
-                SceneView.RepaintAll();
-            }
-        }
-        
-        private int FindOverlappingSelection(HashSet<int> currentVertices)
-        {
-            float overlapThreshold = 0.7f;
-            
-            for (int i = 0; i < meshSelections.Count; i++)
-            {
-                var existingSelection = meshSelections[i];
-                
-                HashSet<int> intersection = new HashSet<int>(existingSelection.vertices);
-                intersection.IntersectWith(currentVertices);
-                
-                float overlapWithExisting = (float)intersection.Count / existingSelection.vertices.Count;
-                float overlapWithCurrent = (float)intersection.Count / currentVertices.Count;
-                
-                if (overlapWithExisting >= overlapThreshold || overlapWithCurrent >= overlapThreshold)
-                {
-                    debugInfo += $"Found overlapping selection {i}: existing={overlapWithExisting:F2}, current={overlapWithCurrent:F2}\n";
-                    return i;
-                }
-            }
-            
-            return -1;
-        }
-        
-        private void RemoveVerticesFromSelections(HashSet<int> verticesToRemove)
-        {
-            debugInfo += $"Removing {verticesToRemove.Count} vertices from selections\n";
-            
-            for (int i = meshSelections.Count - 1; i >= 0; i--)
-            {
-                var selection = meshSelections[i];
-                
-                selection.vertices.ExceptWith(verticesToRemove);
-                
-                int[] triangles = targetMesh.triangles;
-                for (int j = selection.triangles.Count - 1; j >= 0; j--)
-                {
-                    int triangleIndex = selection.triangles[j];
-                    int baseIndex = triangleIndex * 3;
-                    
-                    if (baseIndex + 2 < triangles.Length)
-                    {
-                        bool containsRemovedVertex = false;
-                        for (int k = 0; k < 3; k++)
-                        {
-                            if (verticesToRemove.Contains(triangles[baseIndex + k]))
-                            {
-                                containsRemovedVertex = true;
-                                break;
-                            }
-                        }
-                        
-                        if (containsRemovedVertex)
-                        {
-                            selection.triangles.RemoveAt(j);
-                        }
-                    }
-                }
-                
-                if (selection.vertices.Count == 0)
-                {
-                    meshSelections.RemoveAt(i);
-                    if (activeSelectionIndex == i)
-                    {
-                        activeSelectionIndex = -1;
-                    }
-                    else if (activeSelectionIndex > i)
-                    {
-                        activeSelectionIndex--;
-                    }
-                }
-            }
-            
-            if (activeSelectionIndex >= meshSelections.Count)
-            {
-                activeSelectionIndex = meshSelections.Count - 1;
-            }
-            
-            if (activeSelectionIndex >= 0)
-            {
-                SetActiveSelection(activeSelectionIndex);
-            }
-            else
-            {
-                selectedVertices.Clear();
-                selectedTriangles.Clear();
-                RemovePreview();
-            }
-            
-            debugInfo += $"Remaining selections: {meshSelections.Count}\n";
-        }
-        
-        private void SetupSafetyComponent()
-        {
-            debugInfo += $"[Safety] SetupSafetyComponent called\n";
-            debugInfo += $"[Safety] targetMeshRenderer: {(targetMeshRenderer != null ? targetMeshRenderer.name : "null")}\n";
-            debugInfo += $"[Safety] originalMaterial: {(originalMaterial != null ? originalMaterial.name : "null")}\n";
-            debugInfo += $"[Safety] windowGUID: {windowGUID}\n";
-            
-            if (targetMeshRenderer != null && originalMaterial != null)
-            {
-                currentSafety = MeshColorMaterialSafety.CreateSafety(targetMeshRenderer, originalMaterial, windowGUID);
-                if (currentSafety != null)
-                {
-                    debugInfo += $"[Safety] Material safety component created successfully on {targetMeshRenderer.gameObject.name}\n";
-                    
-                    var components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
-                    debugInfo += $"[Safety] Found {components.Length} MeshColorMaterialSafety components on GameObject\n";
-                }
-                else
-                {
-                    debugInfo += "[Safety] Failed to create safety component (returned null)\n";
-                }
-            }
-            else
-            {
-                debugInfo += "[Safety] Cannot create safety component - missing renderer or material\n";
-            }
-        }
-        
-        private void RemoveSafetyComponent()
-        {
-            debugInfo += "[Safety] RemoveSafetyComponent called\n";
-            
-            if (targetMeshRenderer != null)
-            {
-                var components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
-                debugInfo += $"[Safety] Found {components.Length} safety components before removal\n";
-                
-                MeshColorMaterialSafety.RemoveSafety(targetMeshRenderer);
-                
-                components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
-                debugInfo += $"[Safety] Found {components.Length} safety components after removal\n";
-            }
-            
-            currentSafety = null;
-            debugInfo += "[Safety] Material safety component removed\n";
-        }
-        
-        [System.Serializable]
-        private class EditHistory
-        {
-            public string timestamp;
-            public Material material;
-            public Texture2D texture;
-            public HashSet<int> selectedVertices;
-        }
-        
-        [System.Serializable]
-        private class MeshSelection
-        {
-            public HashSet<int> vertices = new HashSet<int>();
-            public List<int> triangles = new List<int>();
-            public bool isEnabled = true;
-        }
-        
-        private class VertexCandidate
-        {
-            public int index;
-            public Vector3 worldPosition;
-            public float distance;
         }
     }
 }
