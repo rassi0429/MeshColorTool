@@ -14,6 +14,11 @@ namespace VRChatAvatarTools
         private Mesh targetMesh;
         private MeshCollider tempCollider;
         
+        // Available SkinnedMeshRenderers
+        private SkinnedMeshRenderer[] availableRenderers;
+        private int selectedRendererIndex = 0;
+        private Dictionary<SkinnedMeshRenderer, bool> originalRendererStates = new Dictionary<SkinnedMeshRenderer, bool>();
+        
         // Selection
         private bool isSelectionMode = false;
         private bool isMultiSelectionMode = false;
@@ -65,6 +70,7 @@ namespace VRChatAvatarTools
             SceneView.duringSceneGui -= OnSceneGUI;
             CleanupPreview();
             RemoveTempCollider();
+            RestoreAllMeshes(); // Restore original mesh visibility states when closing window
         }
         
         private void OnGUI()
@@ -115,38 +121,85 @@ namespace VRChatAvatarTools
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField("Target Mesh", EditorStyles.boldLabel);
             
+            // Avatar selection
             EditorGUI.BeginChangeCheck();
             targetAvatar = EditorGUILayout.ObjectField("Avatar", targetAvatar, typeof(GameObject), true) as GameObject;
             
             if (EditorGUI.EndChangeCheck() && targetAvatar != null)
             {
-                // Find SkinnedMeshRenderer
-                targetMeshRenderer = targetAvatar.GetComponentInChildren<SkinnedMeshRenderer>();
-                if (targetMeshRenderer != null)
+                // Find all SkinnedMeshRenderers
+                availableRenderers = targetAvatar.GetComponentsInChildren<SkinnedMeshRenderer>();
+                
+                // Store original states
+                originalRendererStates.Clear();
+                foreach (var renderer in availableRenderers)
                 {
-                    targetMesh = targetMeshRenderer.sharedMesh;
-                    originalMaterial = targetMeshRenderer.sharedMaterial;
-                    
-                    if (originalMaterial != null && originalMaterial.mainTexture != null)
-                    {
-                        originalTexture = originalMaterial.mainTexture as Texture2D;
-                        
-                        // Check if texture is readable
-                        if (!IsTextureReadable(originalTexture))
-                        {
-                            debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
-                        }
-                    }
-                    
-                    // Setup temporary collider for raycasting
-                    SetupTempCollider();
+                    originalRendererStates[renderer] = renderer.enabled;
+                }
+                
+                if (availableRenderers.Length > 0)
+                {
+                    selectedRendererIndex = 0;
+                    SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
+                }
+                else
+                {
+                    targetMeshRenderer = null;
+                    targetMesh = null;
+                    originalMaterial = null;
+                    originalTexture = null;
+                    EditorUtility.DisplayDialog("No SkinnedMeshRenderer", 
+                        "The selected avatar doesn't have any SkinnedMeshRenderer components.", "OK");
                 }
                 
                 ClearAllSelections();
             }
             
+            // SkinnedMeshRenderer selection
+            if (targetAvatar != null && availableRenderers != null && availableRenderers.Length > 0)
+            {
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField("Select Mesh:", EditorStyles.boldLabel);
+                
+                // Create dropdown options
+                string[] rendererNames = new string[availableRenderers.Length];
+                for (int i = 0; i < availableRenderers.Length; i++)
+                {
+                    rendererNames[i] = $"{i}: {availableRenderers[i].name}";
+                    if (availableRenderers[i].sharedMesh != null)
+                    {
+                        rendererNames[i] += $" ({availableRenderers[i].sharedMesh.name})";
+                    }
+                }
+                
+                EditorGUI.BeginChangeCheck();
+                selectedRendererIndex = EditorGUILayout.Popup("Mesh Renderer", selectedRendererIndex, rendererNames);
+                
+                if (EditorGUI.EndChangeCheck())
+                {
+                    SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
+                    ClearAllSelections();
+                }
+                
+                // Toggle to hide other meshes
+                EditorGUILayout.Space();
+                bool hideOthers = EditorGUILayout.Toggle("Hide Other Meshes", IsOtherMeshesHidden());
+                
+                if (hideOthers)
+                {
+                    HideOtherMeshes();
+                }
+                else
+                {
+                    RestoreAllMeshes();
+                }
+            }
+            
+            // Display mesh information
             if (targetMeshRenderer != null)
             {
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField("Mesh Info:", EditorStyles.boldLabel);
                 EditorGUILayout.LabelField("Mesh: " + targetMesh.name);
                 EditorGUILayout.LabelField("Vertices: " + targetMesh.vertexCount);
                 EditorGUILayout.LabelField("Material: " + (originalMaterial != null ? originalMaterial.name : "None"));
@@ -165,6 +218,84 @@ namespace VRChatAvatarTools
             }
             
             EditorGUILayout.EndVertical();
+        }
+        
+        private void SelectMeshRenderer(SkinnedMeshRenderer renderer)
+        {
+            targetMeshRenderer = renderer;
+            
+            if (targetMeshRenderer != null)
+            {
+                targetMesh = targetMeshRenderer.sharedMesh;
+                originalMaterial = targetMeshRenderer.sharedMaterial;
+                
+                if (originalMaterial != null && originalMaterial.mainTexture != null)
+                {
+                    originalTexture = originalMaterial.mainTexture as Texture2D;
+                    
+                    // Check if texture is readable
+                    if (!IsTextureReadable(originalTexture))
+                    {
+                        debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
+                    }
+                }
+                
+                // Setup temporary collider for raycasting
+                SetupTempCollider();
+            }
+        }
+        
+        private bool IsOtherMeshesHidden()
+        {
+            if (availableRenderers == null || targetMeshRenderer == null) return false;
+            
+            foreach (var renderer in availableRenderers)
+            {
+                if (renderer != targetMeshRenderer && renderer.enabled)
+                {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+        
+        private void HideOtherMeshes()
+        {
+            if (availableRenderers == null || targetMeshRenderer == null) return;
+            
+            foreach (var renderer in availableRenderers)
+            {
+                if (renderer != targetMeshRenderer)
+                {
+                    renderer.enabled = false;
+                }
+                else
+                {
+                    renderer.enabled = true;
+                }
+            }
+            
+            SceneView.RepaintAll();
+        }
+        
+        private void RestoreAllMeshes()
+        {
+            if (availableRenderers == null) return;
+            
+            foreach (var renderer in availableRenderers)
+            {
+                if (originalRendererStates.ContainsKey(renderer))
+                {
+                    renderer.enabled = originalRendererStates[renderer];
+                }
+                else
+                {
+                    renderer.enabled = true;
+                }
+            }
+            
+            SceneView.RepaintAll();
         }
         
         private void DrawSelectionMode()
