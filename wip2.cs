@@ -79,6 +79,8 @@ namespace VRChatAvatarTools
             RemoveSafetyComponent();
         }
         
+        private Vector2 mainScrollPosition;
+        
         private void OnGUI()
         {
             EditorGUILayout.Space();
@@ -86,10 +88,13 @@ namespace VRChatAvatarTools
             EditorGUILayout.LabelField("VRChat Mesh Color Editor", EditorStyles.boldLabel);
             EditorGUILayout.Space();
             
+            mainScrollPosition = EditorGUILayout.BeginScrollView(mainScrollPosition);
+            
             DrawTargetSelection();
             
             if (targetMeshRenderer == null)
             {
+                EditorGUILayout.EndScrollView();
                 EditorGUILayout.HelpBox("Please select an avatar with SkinnedMeshRenderer", MessageType.Info);
                 return;
             }
@@ -111,6 +116,8 @@ namespace VRChatAvatarTools
             
             EditorGUILayout.Space();
             DrawDebugInfo();
+            
+            EditorGUILayout.EndScrollView();
             
             if (needsPreviewUpdate && showPreview && meshSelections.Count > 0)
             {
