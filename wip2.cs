@@ -6,7 +6,7 @@ using System;
 
 namespace VRChatAvatarTools
 {
-    public class HairMeshEditorWindow : EditorWindow
+    public class MeshColorEditorWindow : EditorWindow
     {
         // Target mesh
         private GameObject targetAvatar;
@@ -26,7 +26,7 @@ namespace VRChatAvatarTools
         private List<int> selectedTriangles = new List<int>();
         
         // Multiple selection support
-        private List<HairStrandSelection> hairStrandSelections = new List<HairStrandSelection>();
+        private List<MeshSelection> meshSelections = new List<MeshSelection>();
         private int activeSelectionIndex = -1;
         private Vector2 selectionScrollPos;
         
@@ -42,7 +42,7 @@ namespace VRChatAvatarTools
         private List<EditHistory> editHistories = new List<EditHistory>();
         
         // Safety component
-        private HairMeshMaterialSafety currentSafety;
+        private MeshColorMaterialSafety currentSafety;
         private string windowGUID;
         
         // Preview
@@ -56,18 +56,17 @@ namespace VRChatAvatarTools
         private Vector3 lastRaycastPoint;
         private bool lastRaycastHit = false;
         
-        [MenuItem("VRChat Avatar Tools/Hair Mesh Editor")]
+        [MenuItem("VRChat Avatar Tools/Mesh Color Editor")]
         public static void ShowWindow()
         {
-            HairMeshEditorWindow window = GetWindow<HairMeshEditorWindow>();
-            window.titleContent = new GUIContent("Hair Mesh Editor");
+            MeshColorEditorWindow window = GetWindow<MeshColorEditorWindow>();
+            window.titleContent = new GUIContent("Mesh Color Editor");
             window.minSize = new Vector2(400, 600);
         }
         
         private void OnEnable()
         {
             SceneView.duringSceneGui += OnSceneGUI;
-            // Generate unique ID for this window instance
             windowGUID = System.Guid.NewGuid().ToString();
         }
         
@@ -76,19 +75,17 @@ namespace VRChatAvatarTools
             SceneView.duringSceneGui -= OnSceneGUI;
             CleanupPreview();
             RemoveTempCollider();
-            RestoreAllMeshes(); // Restore original mesh visibility states when closing window
-            RemoveSafetyComponent(); // Remove safety component when closing window
+            RestoreAllMeshes();
+            RemoveSafetyComponent();
         }
         
         private void OnGUI()
         {
             EditorGUILayout.Space();
             
-            // Header
-            EditorGUILayout.LabelField("VRChat Hair Mesh Editor", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("VRChat Mesh Color Editor", EditorStyles.boldLabel);
             EditorGUILayout.Space();
             
-            // Target Selection
             DrawTargetSelection();
             
             if (targetMeshRenderer == null)
@@ -115,8 +112,7 @@ namespace VRChatAvatarTools
             EditorGUILayout.Space();
             DrawDebugInfo();
             
-            // Update preview if needed
-            if (needsPreviewUpdate && showPreview && hairStrandSelections.Count > 0)
+            if (needsPreviewUpdate && showPreview && meshSelections.Count > 0)
             {
                 UpdatePreview();
                 needsPreviewUpdate = false;
@@ -128,16 +124,13 @@ namespace VRChatAvatarTools
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField("Target Mesh", EditorStyles.boldLabel);
             
-            // Avatar selection
             EditorGUI.BeginChangeCheck();
             targetAvatar = EditorGUILayout.ObjectField("Avatar", targetAvatar, typeof(GameObject), true) as GameObject;
             
             if (EditorGUI.EndChangeCheck() && targetAvatar != null)
             {
-                // Find all SkinnedMeshRenderers
                 availableRenderers = targetAvatar.GetComponentsInChildren<SkinnedMeshRenderer>();
                 
-                // Store original states
                 originalRendererStates.Clear();
                 foreach (var renderer in availableRenderers)
                 {
@@ -162,13 +155,11 @@ namespace VRChatAvatarTools
                 ClearAllSelections();
             }
             
-            // SkinnedMeshRenderer selection
             if (targetAvatar != null && availableRenderers != null && availableRenderers.Length > 0)
             {
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField("Select Mesh:", EditorStyles.boldLabel);
                 
-                // Create dropdown options
                 string[] rendererNames = new string[availableRenderers.Length];
                 for (int i = 0; i < availableRenderers.Length; i++)
                 {
@@ -188,7 +179,6 @@ namespace VRChatAvatarTools
                     ClearAllSelections();
                 }
                 
-                // Toggle to hide other meshes
                 EditorGUILayout.Space();
                 bool hideOthers = EditorGUILayout.Toggle("Hide Other Meshes", IsOtherMeshesHidden());
                 
@@ -202,7 +192,6 @@ namespace VRChatAvatarTools
                 }
             }
             
-            // Display mesh information
             if (targetMeshRenderer != null)
             {
                 EditorGUILayout.Space();
@@ -229,7 +218,6 @@ namespace VRChatAvatarTools
         
         private void SelectMeshRenderer(SkinnedMeshRenderer renderer)
         {
-            // Remove previous safety component if exists
             RemoveSafetyComponent();
             
             targetMeshRenderer = renderer;
@@ -243,17 +231,13 @@ namespace VRChatAvatarTools
                 {
                     originalTexture = originalMaterial.mainTexture as Texture2D;
                     
-                    // Check if texture is readable
                     if (!IsTextureReadable(originalTexture))
                     {
                         debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
                     }
                 }
                 
-                // Setup safety component to protect original material
                 SetupSafetyComponent();
-                
-                // Setup temporary collider for raycasting
                 SetupTempCollider();
             }
         }
@@ -314,21 +298,18 @@ namespace VRChatAvatarTools
         private void DrawSelectionMode()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Hair Strand Selection", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Mesh Selection", EditorStyles.boldLabel);
             
             EditorGUI.BeginChangeCheck();
             isSelectionMode = EditorGUILayout.Toggle("Selection Mode", isSelectionMode);
             
             if (EditorGUI.EndChangeCheck())
             {
-                // Force scene view to update when toggling selection mode
                 SceneView.RepaintAll();
                 
-                // Lock/unlock scene view selection
                 if (isSelectionMode)
                 {
                     Tools.current = Tool.None;
-                    // Ensure collider is set up when entering selection mode
                     if (targetMeshRenderer != null && tempCollider == null)
                     {
                         SetupTempCollider();
@@ -351,7 +332,7 @@ namespace VRChatAvatarTools
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox("Click: Select new strand", MessageType.Info);
+                    EditorGUILayout.HelpBox("Click: Select new area", MessageType.Info);
                 }
             }
             
@@ -362,7 +343,6 @@ namespace VRChatAvatarTools
                 ClearAllSelections();
             }
             
-            // Debug button to manually create collider
             if (targetMeshRenderer != null && tempCollider == null)
             {
                 if (GUILayout.Button("Setup Collider (Debug)"))
@@ -377,28 +357,26 @@ namespace VRChatAvatarTools
         private void DrawSelectionList()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Hair Strand Selections", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Mesh Selections", EditorStyles.boldLabel);
             
-            if (hairStrandSelections.Count == 0)
+            if (meshSelections.Count == 0)
             {
-                EditorGUILayout.LabelField("No strands selected", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("No areas selected", EditorStyles.miniLabel);
             }
             else
             {
                 selectionScrollPos = EditorGUILayout.BeginScrollView(selectionScrollPos, GUILayout.Height(150));
                 
-                for (int i = 0; i < hairStrandSelections.Count; i++)
+                for (int i = 0; i < meshSelections.Count; i++)
                 {
-                    var selection = hairStrandSelections[i];
+                    var selection = meshSelections[i];
                     
                     EditorGUILayout.BeginHorizontal();
                     
-                    // Active selection highlight
                     bool isActive = (i == activeSelectionIndex);
                     GUI.backgroundColor = isActive ? Color.cyan : Color.white;
                     
-                    // Selection button
-                    if (GUILayout.Button($"Strand {i + 1} ({selection.vertices.Count} verts)", 
+                    if (GUILayout.Button($"Area {i + 1} ({selection.vertices.Count} verts)", 
                         isActive ? EditorStyles.miniButtonMid : EditorStyles.miniButton))
                     {
                         SetActiveSelection(i);
@@ -406,10 +384,8 @@ namespace VRChatAvatarTools
                     
                     GUI.backgroundColor = Color.white;
                     
-                    // Enable/disable selection
                     selection.isEnabled = EditorGUILayout.Toggle(selection.isEnabled, GUILayout.Width(20));
                     
-                    // Remove button
                     GUI.backgroundColor = Color.red;
                     if (GUILayout.Button("X", GUILayout.Width(20)))
                     {
@@ -421,9 +397,7 @@ namespace VRChatAvatarTools
                 }
                 
                 EditorGUILayout.EndScrollView();
-                
                 EditorGUILayout.Space();
-                
             }
             
             EditorGUILayout.EndVertical();
@@ -449,7 +423,7 @@ namespace VRChatAvatarTools
             
             if (EditorGUI.EndChangeCheck())
             {
-                if (showPreview && hairStrandSelections.Count > 0)
+                if (showPreview && meshSelections.Count > 0)
                 {
                     needsPreviewUpdate = true;
                 }
@@ -459,7 +433,6 @@ namespace VRChatAvatarTools
                 }
             }
             
-            // Explanation for blend modes
             EditorGUILayout.HelpBox(GetBlendModeDescription(), MessageType.Info);
             
             EditorGUILayout.EndVertical();
@@ -487,7 +460,7 @@ namespace VRChatAvatarTools
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField("Actions", EditorStyles.boldLabel);
             
-            GUI.enabled = hairStrandSelections.Count > 0 && originalTexture != null;
+            GUI.enabled = meshSelections.Count > 0 && originalTexture != null;
             
             if (GUILayout.Button("Apply Color", GUILayout.Height(30)))
             {
@@ -559,16 +532,12 @@ namespace VRChatAvatarTools
             
             Event e = Event.current;
             
-            // Prevent GameObject selection in selection mode
             if (isSelectionMode)
             {
                 HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
-                
-                // Change cursor to indicate selection mode
                 EditorGUIUtility.AddCursorRect(new Rect(0, 0, sceneView.position.width, sceneView.position.height), MouseCursor.CustomCursor);
             }
             
-            // Debug: Show mouse position
             if (e.type == EventType.MouseMove && isSelectionMode)
             {
                 Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
@@ -579,7 +548,6 @@ namespace VRChatAvatarTools
             
             if (e.type == EventType.MouseDown && e.button == 0 && isSelectionMode)
             {
-                // Check modifier keys
                 bool isCtrlHeld = e.control;
                 
                 debugInfo += "\n=== CLICK EVENT ===\n";
@@ -589,7 +557,6 @@ namespace VRChatAvatarTools
                 debugInfo += $"Click Position: {e.mousePosition}\n";
                 debugInfo += $"Ray: {ray.origin} -> {ray.direction}\n";
                 
-                // Update the baked mesh for accurate raycasting
                 if (tempCollider != null && targetMeshRenderer != null)
                 {
                     Mesh bakedMesh = new Mesh();
@@ -598,30 +565,25 @@ namespace VRChatAvatarTools
                     debugInfo += "Mesh baked for current pose\n";
                 }
                 
-                // Try multiple raycast methods
                 RaycastHit hit;
-                bool hitSuccess = false;
                 
-                // Method 1: Standard Physics.Raycast
                 if (Physics.Raycast(ray, out hit))
                 {
-                    hitSuccess = true;
                     debugInfo += $"Physics.Raycast HIT: {hit.collider.gameObject.name}\n";
                     debugInfo += $"Hit Point: {hit.point}\n";
                     debugInfo += $"Hit Distance: {hit.distance}\n";
                     
-                    // Check if we hit our temp collider
                     if (hit.collider == tempCollider)
                     {
-                        debugInfo += "HIT TEMP COLLIDER! Selecting strand...\n";
-                        SelectHairStrand(hit.point);
+                        debugInfo += "HIT TEMP COLLIDER! Selecting area...\n";
+                        SelectMeshArea(hit.point);
                         lastRaycastPoint = hit.point;
                         lastRaycastHit = true;
                     }
                     else if (hit.collider.gameObject == targetMeshRenderer.gameObject)
                     {
-                        debugInfo += "HIT TARGET MESH! Selecting strand...\n";
-                        SelectHairStrand(hit.point);
+                        debugInfo += "HIT TARGET MESH! Selecting area...\n";
+                        SelectMeshArea(hit.point);
                         lastRaycastPoint = hit.point;
                         lastRaycastHit = true;
                     }
@@ -634,14 +596,12 @@ namespace VRChatAvatarTools
                 {
                     debugInfo += "Physics.Raycast MISSED\n";
                     
-                    // Method 2: Try with longer distance
                     if (Physics.Raycast(ray, out hit, 1000f))
                     {
                         debugInfo += $"Long distance raycast HIT: {hit.collider.gameObject.name}\n";
                     }
                 }
                 
-                // Method 3: Check collider status
                 if (tempCollider == null)
                 {
                     debugInfo += "WARNING: Temp collider is NULL!\n";
@@ -657,19 +617,16 @@ namespace VRChatAvatarTools
                 e.Use();
             }
             
-            // Also handle mouse up to prevent selection
             if (e.type == EventType.MouseUp && e.button == 0 && isSelectionMode)
             {
                 e.Use();
             }
             
-            // Draw all selections with different colors
             if (showPreview)
             {
                 DrawAllSelections();
             }
             
-            // Draw debug visualization
             if (lastRaycastHit)
             {
                 Handles.color = Color.red;
@@ -677,25 +634,22 @@ namespace VRChatAvatarTools
             }
         }
         
-        private void SelectHairStrand(Vector3 hitPoint)
+        private void SelectMeshArea(Vector3 hitPoint)
         {
             if (targetMesh == null) return;
             
-            debugInfo += "\n--- SelectHairStrand CALLED ---\n";
+            debugInfo += "\n--- SelectMeshArea CALLED ---\n";
             debugInfo += $"Hit Point: {hitPoint}\n";
             
-            // Get modifier key states from current event
             Event currentEvent = Event.current;
             bool isCtrlHeld = currentEvent != null ? currentEvent.control : false;
             
-            // Get camera direction for normal comparison
             Camera sceneCamera = SceneView.lastActiveSceneView?.camera;
             if (sceneCamera == null) return;
             
             Vector3 cameraPosition = sceneCamera.transform.position;
             Vector3 cameraForward = sceneCamera.transform.forward;
             
-            // Find nearest vertices and select based on camera-facing normals
             Vector3[] vertices = targetMesh.vertices;
             Vector3[] normals = targetMesh.normals;
             Transform meshTransform = targetMeshRenderer.transform;
@@ -703,9 +657,8 @@ namespace VRChatAvatarTools
             debugInfo += $"Total vertices: {vertices.Length}\n";
             debugInfo += $"Camera position: {cameraPosition}\n";
             
-            // Find closest vertices (within small threshold)
             List<VertexCandidate> candidates = new List<VertexCandidate>();
-            float threshold = 0.001f; // Vertices within this distance are considered "same position"
+            float threshold = 0.001f;
             
             for (int i = 0; i < vertices.Length; i++)
             {
@@ -720,7 +673,6 @@ namespace VRChatAvatarTools
                 });
             }
             
-            // Sort by distance and find the closest ones
             candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
             
             if (candidates.Count == 0) return;
@@ -728,7 +680,6 @@ namespace VRChatAvatarTools
             float minDistance = candidates[0].distance;
             List<VertexCandidate> closestVertices = new List<VertexCandidate>();
             
-            // Find all vertices within threshold of the closest vertex
             for (int i = 0; i < candidates.Count; i++)
             {
                 if (candidates[i].distance <= minDistance + threshold)
@@ -743,7 +694,6 @@ namespace VRChatAvatarTools
             
             debugInfo += $"Found {closestVertices.Count} vertices within threshold\n";
             
-            // Among closest vertices, select the one with normal most facing the camera
             int selectedVertex = -1;
             float bestDot = -1f;
             
@@ -768,7 +718,6 @@ namespace VRChatAvatarTools
             
             if (selectedVertex >= 0)
             {
-                // Find connected vertices (hair strand)
                 selectedVertices.Clear();
                 selectedTriangles.Clear();
                 
@@ -784,13 +733,12 @@ namespace VRChatAvatarTools
                 int processedCount = 0;
                 bool isFirstVertex = true;
                 
-                while (queue.Count > 0 && processedCount < 1000) // Limit to prevent infinite loop
+                while (queue.Count > 0 && processedCount < 1000)
                 {
                     processedCount++;
                     int currentVertex = queue.Dequeue();
                     selectedVertices.Add(currentVertex);
                     
-                    // Find all triangles containing this vertex
                     for (int i = 0; i < triangles.Length; i += 3)
                     {
                         bool containsVertex = false;
@@ -808,7 +756,6 @@ namespace VRChatAvatarTools
                         {
                             bool shouldIncludeTriangle = true;
                             
-                            // Only check camera-facing for the first vertex (initial selection)
                             if (isFirstVertex)
                             {
                                 Vector3 v0 = meshTransform.TransformPoint(vertices[triangles[i]]);
@@ -821,17 +768,13 @@ namespace VRChatAvatarTools
                                 
                                 float triangleDot = Vector3.Dot(triangleNormal, toCameraFromTriangle);
                                 
-                                // Only include triangles that are somewhat facing the camera for first vertex
                                 shouldIncludeTriangle = triangleDot > 0.1f;
                             }
-                            // For subsequent vertices, include all connected triangles without normal check
                             
                             if (shouldIncludeTriangle)
                             {
-                                // Add triangle indices
                                 selectedTriangles.Add(i / 3);
                                 
-                                // Add connected vertices
                                 for (int j = 0; j < 3; j++)
                                 {
                                     int vertexIndex = triangles[i + j];
@@ -845,7 +788,6 @@ namespace VRChatAvatarTools
                         }
                     }
                     
-                    // After processing the first vertex, disable normal checking
                     isFirstVertex = false;
                 }
                 
@@ -853,75 +795,64 @@ namespace VRChatAvatarTools
                 debugInfo += $"Selected triangles: {selectedTriangles.Count}\n";
                 debugInfo += $"Processed iterations: {processedCount}\n";
                 
-                // Handle selection based on mode
                 if (isMultiSelectionMode)
                 {
-                    // Multi Selection Mode
                     if (isCtrlHeld)
                     {
-                        // Remove from selection
                         debugInfo += "Multi Mode: Removing from selection\n";
                         RemoveVerticesFromSelections(selectedVertices);
                     }
                     else
                     {
-                        // Check if any existing selection overlaps with current selection
                         int overlappingSelectionIndex = FindOverlappingSelection(selectedVertices);
                         
                         if (overlappingSelectionIndex >= 0)
                         {
-                            // Remove overlapping selection (toggle off)
                             debugInfo += $"Multi Mode: Removing overlapping selection {overlappingSelectionIndex}\n";
                             RemoveSelection(overlappingSelectionIndex);
                         }
                         else
                         {
-                            // Add to selection
                             debugInfo += "Multi Mode: Adding to selection\n";
-                            var newSelection = new HairStrandSelection
+                            var newSelection = new MeshSelection
                             {
                                 vertices = new HashSet<int>(selectedVertices),
                                 triangles = new List<int>(selectedTriangles)
                             };
                             
-                            hairStrandSelections.Add(newSelection);
-                            activeSelectionIndex = hairStrandSelections.Count - 1;
+                            meshSelections.Add(newSelection);
+                            activeSelectionIndex = meshSelections.Count - 1;
                         }
                     }
                 }
                 else
                 {
-                    // Normal Selection Mode - always replace selection
                     debugInfo += "Normal Mode: Replacing selection\n";
-                    hairStrandSelections.Clear();
+                    meshSelections.Clear();
                     
-                    // Add new selection
-                    var newSelection = new HairStrandSelection
+                    var newSelection = new MeshSelection
                     {
                         vertices = new HashSet<int>(selectedVertices),
                         triangles = new List<int>(selectedTriangles)
                     };
                     
-                    hairStrandSelections.Add(newSelection);
-                    activeSelectionIndex = hairStrandSelections.Count - 1;
+                    meshSelections.Add(newSelection);
+                    activeSelectionIndex = meshSelections.Count - 1;
                 }
                 
-                debugInfo += $"Total selections: {hairStrandSelections.Count}\n";
+                debugInfo += $"Total selections: {meshSelections.Count}\n";
                 
-                // Update preview
                 if (showPreview)
                 {
                     needsPreviewUpdate = true;
                 }
                 
-                // Schedule repaint instead of immediate
                 EditorApplication.delayCall += () => {
                     if (this != null) Repaint();
                 };
                 SceneView.RepaintAll();
             }
         }
-        
         
         private void DrawAllSelections()
         {
@@ -930,14 +861,12 @@ namespace VRChatAvatarTools
             Transform meshTransform = targetMeshRenderer.transform;
             Vector3[] vertices = targetMesh.vertices;
             
-            // Draw all selections with different colors
-            for (int i = 0; i < hairStrandSelections.Count; i++)
+            for (int i = 0; i < meshSelections.Count; i++)
             {
-                var selection = hairStrandSelections[i];
+                var selection = meshSelections[i];
                 bool isActive = (i == activeSelectionIndex);
                 
-                // Choose color based on selection index and active state
-                Color baseColor = Color.HSVToRGB((float)i / Mathf.Max(hairStrandSelections.Count, 1f), 0.8f, 1f);
+                Color baseColor = Color.HSVToRGB((float)i / Mathf.Max(meshSelections.Count, 1f), 0.8f, 1f);
                 baseColor.a = isActive ? 0.8f : 0.4f;
                 Handles.color = baseColor;
                 
@@ -955,22 +884,18 @@ namespace VRChatAvatarTools
         
         private void ApplyColorToSelection()
         {
-            if (originalTexture == null || hairStrandSelections.Count == 0) return;
+            if (originalTexture == null || meshSelections.Count == 0) return;
             
-            // Remove preview first
             RemovePreview();
             
-            // Create new texture
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             string newTexturePath = $"Assets/GeneratedTextures/{originalTexture.name}_edited_{timestamp}.png";
             
-            // Ensure directory exists
             if (!AssetDatabase.IsValidFolder("Assets/GeneratedTextures"))
             {
                 AssetDatabase.CreateFolder("Assets", "GeneratedTextures");
             }
             
-            // Copy and modify texture with all selections
             Texture2D newTexture = CreateModifiedTextureWithAllSelections();
             
             if (newTexture == null)
@@ -979,12 +904,10 @@ namespace VRChatAvatarTools
                 return;
             }
             
-            // Save texture
             byte[] pngData = newTexture.EncodeToPNG();
             System.IO.File.WriteAllBytes(newTexturePath, pngData);
             AssetDatabase.Refresh();
             
-            // Load saved texture with proper import settings
             TextureImporter importer = AssetImporter.GetAtPath(newTexturePath) as TextureImporter;
             if (importer != null)
             {
@@ -997,7 +920,6 @@ namespace VRChatAvatarTools
             
             Texture2D savedTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(newTexturePath);
             
-            // Create new material
             string newMaterialPath = $"Assets/GeneratedMaterials/{originalMaterial.name}_edited_{timestamp}.mat";
             
             if (!AssetDatabase.IsValidFolder("Assets/GeneratedMaterials"))
@@ -1011,10 +933,8 @@ namespace VRChatAvatarTools
             AssetDatabase.CreateAsset(newMaterial, newMaterialPath);
             AssetDatabase.SaveAssets();
             
-            // Apply to renderer
             targetMeshRenderer.sharedMaterial = newMaterial;
             
-            // Add to history
             EditHistory history = new EditHistory
             {
                 timestamp = timestamp,
@@ -1024,8 +944,6 @@ namespace VRChatAvatarTools
             };
             
             editHistories.Add(history);
-            
-            // Clear selection
             ClearAllSelections();
             
             debugInfo += $"\nTexture saved: {newTexturePath}\n";
@@ -1047,7 +965,6 @@ namespace VRChatAvatarTools
         
         private Texture2D GetReadableTexture(Texture2D source)
         {
-            // Create a temporary RenderTexture
             RenderTexture tmp = RenderTexture.GetTemporary(
                 source.width,
                 source.height,
@@ -1056,19 +973,15 @@ namespace VRChatAvatarTools
                 RenderTextureReadWrite.sRGB
             );
             
-            // Copy the source texture to the RenderTexture
             Graphics.Blit(source, tmp);
             
-            // Set the RenderTexture as active
             RenderTexture previous = RenderTexture.active;
             RenderTexture.active = tmp;
             
-            // Create a new readable Texture2D and read the pixels
             Texture2D readableTexture = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
             readableTexture.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
             readableTexture.Apply();
             
-            // Reset active RenderTexture
             RenderTexture.active = previous;
             RenderTexture.ReleaseTemporary(tmp);
             
@@ -1079,11 +992,9 @@ namespace VRChatAvatarTools
         {
             Texture2D workingTexture;
             
-            // Check if original texture is readable
             if (IsTextureReadable(originalTexture))
             {
                 debugInfo += "Using original texture (readable)\n";
-                // Create a copy of the original texture
                 workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
                 workingTexture.SetPixels(originalTexture.GetPixels());
                 workingTexture.Apply();
@@ -1091,22 +1002,17 @@ namespace VRChatAvatarTools
             else
             {
                 debugInfo += "Creating readable copy of texture\n";
-                // Create readable copy using RenderTexture
                 workingTexture = GetReadableTexture(originalTexture);
             }
             
-            // Get UV coordinates
             Vector2[] uvs = targetMesh.uv;
             
-            // Apply color for each enabled selection
-            foreach (var selection in hairStrandSelections)
+            foreach (var selection in meshSelections)
             {
-                // Skip disabled selections
                 if (!selection.isEnabled) continue;
                 
                 HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
                 
-                // Paint triangles for this selection
                 foreach (int triangleIndex in selection.triangles)
                 {
                     int baseIndex = triangleIndex * 3;
@@ -1127,15 +1033,9 @@ namespace VRChatAvatarTools
             return workingTexture;
         }
         
-        private void PaintTriangleOnTexture(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, HashSet<Vector2Int> paintedPixels)
-        {
-            PaintTriangleOnTextureWithColor(texture, uv0, uv1, uv2, paintedPixels, blendColor, blendStrength);
-        }
-        
         private void PaintTriangleOnTextureWithColor(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, 
             HashSet<Vector2Int> paintedPixels, Color color, float strength)
         {
-            // Convert UV to pixel coordinates
             int x0 = Mathf.RoundToInt(uv0.x * (texture.width - 1));
             int y0 = Mathf.RoundToInt(uv0.y * (texture.height - 1));
             int x1 = Mathf.RoundToInt(uv1.x * (texture.width - 1));
@@ -1143,20 +1043,17 @@ namespace VRChatAvatarTools
             int x2 = Mathf.RoundToInt(uv2.x * (texture.width - 1));
             int y2 = Mathf.RoundToInt(uv2.y * (texture.height - 1));
             
-            // Get bounding box
             int minX = Mathf.Max(0, Mathf.Min(x0, Mathf.Min(x1, x2)));
             int maxX = Mathf.Min(texture.width - 1, Mathf.Max(x0, Mathf.Max(x1, x2)));
             int minY = Mathf.Max(0, Mathf.Min(y0, Mathf.Min(y1, y2)));
             int maxY = Mathf.Min(texture.height - 1, Mathf.Max(y0, Mathf.Max(y1, y2)));
             
-            // Paint pixels inside triangle
             for (int x = minX; x <= maxX; x++)
             {
                 for (int y = minY; y <= maxY; y++)
                 {
                     Vector2Int pixelCoord = new Vector2Int(x, y);
                     
-                    // Only paint if we haven't painted this pixel yet and it's inside the triangle
                     if (!paintedPixels.Contains(pixelCoord) && IsPointInTriangle(x, y, x0, y0, x1, y1, x2, y2))
                     {
                         paintedPixels.Add(pixelCoord);
@@ -1183,14 +1080,12 @@ namespace VRChatAvatarTools
                     break;
                     
                 case BlendMode.Color:
-                    // Photoshop Color mode: Apply hue and saturation while preserving luminance
                     float baseLuminance = GetLuminance(baseColor);
                     Color colorized = SetLuminance(blendColor, baseLuminance);
                     result = Color.Lerp(baseColor, colorized, strength);
                     break;
                     
                 case BlendMode.Overlay:
-                    // Overlay: multiply dark colors, screen light colors
                     result = new Color(
                         OverlayChannel(baseColor.r, blendColor.r, strength),
                         OverlayChannel(baseColor.g, blendColor.g, strength),
@@ -1200,18 +1095,16 @@ namespace VRChatAvatarTools
                     break;
             }
             
-            // Clamp values
             result.r = Mathf.Clamp01(result.r);
             result.g = Mathf.Clamp01(result.g);
             result.b = Mathf.Clamp01(result.b);
-            result.a = baseColor.a; // Preserve original alpha
+            result.a = baseColor.a;
             
             return result;
         }
         
         private float GetLuminance(Color color)
         {
-            // Use standard luminance calculation
             return 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
         }
         
@@ -1221,11 +1114,9 @@ namespace VRChatAvatarTools
             
             if (currentLuminance <= 0.0001f)
             {
-                // If the color is black, return gray with target luminance
                 return new Color(targetLuminance, targetLuminance, targetLuminance, color.a);
             }
             
-            // Scale the color to match target luminance
             float scale = targetLuminance / currentLuminance;
             
             Color result = new Color(
@@ -1235,11 +1126,9 @@ namespace VRChatAvatarTools
                 color.a
             );
             
-            // Handle cases where scaling causes values to exceed 1.0
             float maxComponent = Mathf.Max(result.r, Mathf.Max(result.g, result.b));
             if (maxComponent > 1.0f)
             {
-                // Desaturate towards target luminance
                 float desaturation = (maxComponent - 1.0f) / (maxComponent - targetLuminance);
                 result = Color.Lerp(result, new Color(targetLuminance, targetLuminance, targetLuminance, color.a), desaturation);
             }
@@ -1272,21 +1161,18 @@ namespace VRChatAvatarTools
         
         private void ExportMaskTexture()
         {
-            if (originalTexture == null || hairStrandSelections.Count == 0) return;
+            if (originalTexture == null || meshSelections.Count == 0) return;
             
-            // Remove preview first
             RemovePreview();
             
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             string maskTexturePath = $"Assets/GeneratedTextures/{originalTexture.name}_mask_{timestamp}.png";
             
-            // Ensure directory exists
             if (!AssetDatabase.IsValidFolder("Assets/GeneratedTextures"))
             {
                 AssetDatabase.CreateFolder("Assets", "GeneratedTextures");
             }
             
-            // Create mask texture
             Texture2D maskTexture = CreateMaskTexture();
             
             if (maskTexture == null)
@@ -1295,17 +1181,15 @@ namespace VRChatAvatarTools
                 return;
             }
             
-            // Save mask texture
             byte[] pngData = maskTexture.EncodeToPNG();
             System.IO.File.WriteAllBytes(maskTexturePath, pngData);
             AssetDatabase.Refresh();
             
-            // Load saved texture with proper import settings
             TextureImporter importer = AssetImporter.GetAtPath(maskTexturePath) as TextureImporter;
             if (importer != null)
             {
                 importer.textureType = TextureImporterType.Default;
-                importer.sRGBTexture = false; // Mask should be linear
+                importer.sRGBTexture = false;
                 importer.textureCompression = TextureImporterCompression.Uncompressed;
                 importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
                 importer.SaveAndReimport();
@@ -1313,7 +1197,6 @@ namespace VRChatAvatarTools
             
             debugInfo += $"\nMask texture saved: {maskTexturePath}\n";
             
-            // Show success dialog
             EditorUtility.DisplayDialog("Mask Export Complete", 
                 $"Mask texture has been exported to:\n{maskTexturePath}\n\nWhite areas represent selected regions, black areas are unselected.", 
                 "OK");
@@ -1323,13 +1206,11 @@ namespace VRChatAvatarTools
         {
             Texture2D workingTexture;
             
-            // Create a black texture (mask starts as all black)
             if (IsTextureReadable(originalTexture))
             {
                 debugInfo += "Creating mask texture based on original dimensions\n";
                 workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
                 
-                // Fill with black
                 Color[] blackPixels = new Color[originalTexture.width * originalTexture.height];
                 for (int i = 0; i < blackPixels.Length; i++)
                 {
@@ -1343,7 +1224,6 @@ namespace VRChatAvatarTools
                 Texture2D readableOriginal = GetReadableTexture(originalTexture);
                 workingTexture = new Texture2D(readableOriginal.width, readableOriginal.height, TextureFormat.ARGB32, false);
                 
-                // Fill with black
                 Color[] blackPixels = new Color[readableOriginal.width * readableOriginal.height];
                 for (int i = 0; i < blackPixels.Length; i++)
                 {
@@ -1351,22 +1231,17 @@ namespace VRChatAvatarTools
                 }
                 workingTexture.SetPixels(blackPixels);
                 
-                // Clean up temporary texture
                 DestroyImmediate(readableOriginal);
             }
             
-            // Get UV coordinates
             Vector2[] uvs = targetMesh.uv;
             
-            // Paint white for each enabled selection
-            foreach (var selection in hairStrandSelections)
+            foreach (var selection in meshSelections)
             {
-                // Skip disabled selections
                 if (!selection.isEnabled) continue;
                 
                 HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
                 
-                // Paint triangles for this selection in white
                 foreach (int triangleIndex in selection.triangles)
                 {
                     int baseIndex = triangleIndex * 3;
@@ -1389,7 +1264,6 @@ namespace VRChatAvatarTools
         
         private void PaintTriangleOnMask(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, HashSet<Vector2Int> paintedPixels)
         {
-            // Convert UV to pixel coordinates
             int x0 = Mathf.RoundToInt(uv0.x * (texture.width - 1));
             int y0 = Mathf.RoundToInt(uv0.y * (texture.height - 1));
             int x1 = Mathf.RoundToInt(uv1.x * (texture.width - 1));
@@ -1397,24 +1271,21 @@ namespace VRChatAvatarTools
             int x2 = Mathf.RoundToInt(uv2.x * (texture.width - 1));
             int y2 = Mathf.RoundToInt(uv2.y * (texture.height - 1));
             
-            // Get bounding box
             int minX = Mathf.Max(0, Mathf.Min(x0, Mathf.Min(x1, x2)));
             int maxX = Mathf.Min(texture.width - 1, Mathf.Max(x0, Mathf.Max(x1, x2)));
             int minY = Mathf.Max(0, Mathf.Min(y0, Mathf.Min(y1, y2)));
             int maxY = Mathf.Min(texture.height - 1, Mathf.Max(y0, Mathf.Max(y1, y2)));
             
-            // Paint pixels inside triangle as white
             for (int x = minX; x <= maxX; x++)
             {
                 for (int y = minY; y <= maxY; y++)
                 {
                     Vector2Int pixelCoord = new Vector2Int(x, y);
                     
-                    // Only paint if we haven't painted this pixel yet and it's inside the triangle
                     if (!paintedPixels.Contains(pixelCoord) && IsPointInTriangle(x, y, x0, y0, x1, y1, x2, y2))
                     {
                         paintedPixels.Add(pixelCoord);
-                        texture.SetPixel(x, y, Color.white); // White = selected area
+                        texture.SetPixel(x, y, Color.white);
                     }
                 }
             }
@@ -1447,17 +1318,14 @@ namespace VRChatAvatarTools
             
             debugInfo += "\n=== SETUP TEMP COLLIDER ===\n";
             
-            // Create a temporary GameObject with MeshCollider
-            GameObject tempObject = new GameObject("TempHairCollider");
+            GameObject tempObject = new GameObject("TempMeshCollider");
             tempObject.transform.SetParent(targetMeshRenderer.transform, false);
             tempObject.layer = targetMeshRenderer.gameObject.layer;
             
             debugInfo += $"Created temp object: {tempObject.name}\n";
             
-            // Add MeshCollider
             tempCollider = tempObject.AddComponent<MeshCollider>();
             
-            // For SkinnedMeshRenderer, we need to bake the mesh
             Mesh bakedMesh = new Mesh();
             targetMeshRenderer.BakeMesh(bakedMesh);
             tempCollider.sharedMesh = bakedMesh;
@@ -1465,12 +1333,10 @@ namespace VRChatAvatarTools
             debugInfo += $"Baked mesh vertices: {bakedMesh.vertexCount}\n";
             debugInfo += $"Collider enabled: {tempCollider.enabled}\n";
             
-            // Hide the temporary object in hierarchy
             tempObject.hideFlags = HideFlags.HideAndDontSave;
             
             debugInfo += "Temporary collider created for raycasting\n";
             
-            // Schedule repaint instead of immediate
             EditorApplication.delayCall += () => {
                 if (this != null) Repaint();
             };
@@ -1496,24 +1362,20 @@ namespace VRChatAvatarTools
         {
             if (targetMeshRenderer == null || originalTexture == null) return;
             
-            // Create or update preview material
             if (previewMaterial == null)
             {
                 previewMaterial = new Material(originalMaterial);
-                previewMaterial.name = "Hair Editor Preview";
+                previewMaterial.name = "Mesh Color Editor Preview";
             }
             
-            // Create preview texture
             if (previewTexture != null)
             {
                 DestroyImmediate(previewTexture);
             }
             
-            // Use the same method that creates the final texture
             previewTexture = CreateModifiedTextureWithAllSelections();
             previewMaterial.mainTexture = previewTexture;
             
-            // Apply preview material
             targetMeshRenderer.sharedMaterial = previewMaterial;
             
             debugInfo += "Preview updated\n";
@@ -1533,16 +1395,9 @@ namespace VRChatAvatarTools
             }
         }
         
-        private void ClearSelection()
-        {
-            selectedVertices.Clear();
-            selectedTriangles.Clear();
-            SceneView.RepaintAll();
-        }
-        
         private void ClearAllSelections()
         {
-            hairStrandSelections.Clear();
+            meshSelections.Clear();
             activeSelectionIndex = -1;
             selectedVertices.Clear();
             selectedTriangles.Clear();
@@ -1564,7 +1419,7 @@ namespace VRChatAvatarTools
         private int GetTotalSelectedVertices()
         {
             HashSet<int> allVertices = new HashSet<int>();
-            foreach (var selection in hairStrandSelections)
+            foreach (var selection in meshSelections)
             {
                 allVertices.UnionWith(selection.vertices);
             }
@@ -1573,10 +1428,10 @@ namespace VRChatAvatarTools
         
         private void SetActiveSelection(int index)
         {
-            if (index >= 0 && index < hairStrandSelections.Count)
+            if (index >= 0 && index < meshSelections.Count)
             {
                 activeSelectionIndex = index;
-                var selection = hairStrandSelections[index];
+                var selection = meshSelections[index];
                 selectedVertices = new HashSet<int>(selection.vertices);
                 selectedTriangles = new List<int>(selection.triangles);
                 
@@ -1591,14 +1446,13 @@ namespace VRChatAvatarTools
         
         private void RemoveSelection(int index)
         {
-            if (index >= 0 && index < hairStrandSelections.Count)
+            if (index >= 0 && index < meshSelections.Count)
             {
-                hairStrandSelections.RemoveAt(index);
+                meshSelections.RemoveAt(index);
                 
-                // Update active selection index
-                if (activeSelectionIndex >= hairStrandSelections.Count)
+                if (activeSelectionIndex >= meshSelections.Count)
                 {
-                    activeSelectionIndex = hairStrandSelections.Count - 1;
+                    activeSelectionIndex = meshSelections.Count - 1;
                 }
                 
                 if (activeSelectionIndex >= 0)
@@ -1616,25 +1470,20 @@ namespace VRChatAvatarTools
             }
         }
         
-        
         private int FindOverlappingSelection(HashSet<int> currentVertices)
         {
-            // Check if any existing selection has significant overlap with current selection
-            float overlapThreshold = 0.7f; // At least 70% overlap to consider it the same selection
+            float overlapThreshold = 0.7f;
             
-            for (int i = 0; i < hairStrandSelections.Count; i++)
+            for (int i = 0; i < meshSelections.Count; i++)
             {
-                var existingSelection = hairStrandSelections[i];
+                var existingSelection = meshSelections[i];
                 
-                // Calculate intersection
                 HashSet<int> intersection = new HashSet<int>(existingSelection.vertices);
                 intersection.IntersectWith(currentVertices);
                 
-                // Calculate overlap percentage for both selections
                 float overlapWithExisting = (float)intersection.Count / existingSelection.vertices.Count;
                 float overlapWithCurrent = (float)intersection.Count / currentVertices.Count;
                 
-                // If there's significant overlap in either direction, consider it the same selection
                 if (overlapWithExisting >= overlapThreshold || overlapWithCurrent >= overlapThreshold)
                 {
                     debugInfo += $"Found overlapping selection {i}: existing={overlapWithExisting:F2}, current={overlapWithCurrent:F2}\n";
@@ -1642,22 +1491,19 @@ namespace VRChatAvatarTools
                 }
             }
             
-            return -1; // No overlapping selection found
+            return -1;
         }
         
         private void RemoveVerticesFromSelections(HashSet<int> verticesToRemove)
         {
             debugInfo += $"Removing {verticesToRemove.Count} vertices from selections\n";
             
-            // Remove vertices from all selections
-            for (int i = hairStrandSelections.Count - 1; i >= 0; i--)
+            for (int i = meshSelections.Count - 1; i >= 0; i--)
             {
-                var selection = hairStrandSelections[i];
+                var selection = meshSelections[i];
                 
-                // Remove vertices
                 selection.vertices.ExceptWith(verticesToRemove);
                 
-                // Remove triangles that contain any of the removed vertices
                 int[] triangles = targetMesh.triangles;
                 for (int j = selection.triangles.Count - 1; j >= 0; j--)
                 {
@@ -1683,10 +1529,9 @@ namespace VRChatAvatarTools
                     }
                 }
                 
-                // Remove empty selections
                 if (selection.vertices.Count == 0)
                 {
-                    hairStrandSelections.RemoveAt(i);
+                    meshSelections.RemoveAt(i);
                     if (activeSelectionIndex == i)
                     {
                         activeSelectionIndex = -1;
@@ -1698,10 +1543,9 @@ namespace VRChatAvatarTools
                 }
             }
             
-            // Update active selection
-            if (activeSelectionIndex >= hairStrandSelections.Count)
+            if (activeSelectionIndex >= meshSelections.Count)
             {
-                activeSelectionIndex = hairStrandSelections.Count - 1;
+                activeSelectionIndex = meshSelections.Count - 1;
             }
             
             if (activeSelectionIndex >= 0)
@@ -1715,34 +1559,9 @@ namespace VRChatAvatarTools
                 RemovePreview();
             }
             
-            debugInfo += $"Remaining selections: {hairStrandSelections.Count}\n";
+            debugInfo += $"Remaining selections: {meshSelections.Count}\n";
         }
         
-        [System.Serializable]
-        private class EditHistory
-        {
-            public string timestamp;
-            public Material material;
-            public Texture2D texture;
-            public HashSet<int> selectedVertices;
-        }
-        
-        [System.Serializable]
-        private class HairStrandSelection
-        {
-            public HashSet<int> vertices = new HashSet<int>();
-            public List<int> triangles = new List<int>();
-            public bool isEnabled = true;
-        }
-        
-        private class VertexCandidate
-        {
-            public int index;
-            public Vector3 worldPosition;
-            public float distance;
-        }
-        
-        // Safety component management methods
         private void SetupSafetyComponent()
         {
             debugInfo += $"[Safety] SetupSafetyComponent called\n";
@@ -1752,14 +1571,13 @@ namespace VRChatAvatarTools
             
             if (targetMeshRenderer != null && originalMaterial != null)
             {
-                currentSafety = HairMeshMaterialSafety.CreateSafety(targetMeshRenderer, originalMaterial, windowGUID);
+                currentSafety = MeshColorMaterialSafety.CreateSafety(targetMeshRenderer, originalMaterial, windowGUID);
                 if (currentSafety != null)
                 {
                     debugInfo += $"[Safety] Material safety component created successfully on {targetMeshRenderer.gameObject.name}\n";
                     
-                    // コンポーネントが実際にアタッチされているか確認
-                    var components = targetMeshRenderer.gameObject.GetComponents<HairMeshMaterialSafety>();
-                    debugInfo += $"[Safety] Found {components.Length} HairMeshMaterialSafety components on GameObject\n";
+                    var components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
+                    debugInfo += $"[Safety] Found {components.Length} MeshColorMaterialSafety components on GameObject\n";
                 }
                 else
                 {
@@ -1778,19 +1596,41 @@ namespace VRChatAvatarTools
             
             if (targetMeshRenderer != null)
             {
-                // 実際にコンポーネントが存在するか確認
-                var components = targetMeshRenderer.gameObject.GetComponents<HairMeshMaterialSafety>();
+                var components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
                 debugInfo += $"[Safety] Found {components.Length} safety components before removal\n";
                 
-                HairMeshMaterialSafety.RemoveSafety(targetMeshRenderer);
+                MeshColorMaterialSafety.RemoveSafety(targetMeshRenderer);
                 
-                // 削除後の確認
-                components = targetMeshRenderer.gameObject.GetComponents<HairMeshMaterialSafety>();
+                components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
                 debugInfo += $"[Safety] Found {components.Length} safety components after removal\n";
             }
             
             currentSafety = null;
             debugInfo += "[Safety] Material safety component removed\n";
+        }
+        
+        [System.Serializable]
+        private class EditHistory
+        {
+            public string timestamp;
+            public Material material;
+            public Texture2D texture;
+            public HashSet<int> selectedVertices;
+        }
+        
+        [System.Serializable]
+        private class MeshSelection
+        {
+            public HashSet<int> vertices = new HashSet<int>();
+            public List<int> triangles = new List<int>();
+            public bool isEnabled = true;
+        }
+        
+        private class VertexCandidate
+        {
+            public int index;
+            public Vector3 worldPosition;
+            public float distance;
         }
     }
 }
