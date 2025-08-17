@@ -285,8 +285,13 @@ namespace VRChatAvatarTools
             EditorGUILayout.LabelField(GetLocalizedText("targetMesh"), EditorStyles.boldLabel);
             
             EditorGUILayout.BeginHorizontal();
+            
+            // Disable the object field if an avatar is already selected
+            EditorGUI.BeginDisabledGroup(targetAvatar != null);
             EditorGUI.BeginChangeCheck();
             targetAvatar = EditorGUILayout.ObjectField(GetLocalizedText("avatar"), targetAvatar, typeof(GameObject), true) as GameObject;
+            bool avatarChanged = EditorGUI.EndChangeCheck();
+            EditorGUI.EndDisabledGroup();
             
             if (targetAvatar != null)
             {
@@ -297,7 +302,13 @@ namespace VRChatAvatarTools
             }
             EditorGUILayout.EndHorizontal();
             
-            if (EditorGUI.EndChangeCheck() && targetAvatar != null)
+            // Show hint when avatar is already selected
+            if (targetAvatar != null)
+            {
+                EditorGUILayout.HelpBox(GetLocalizedText("avatarLockedHint"), MessageType.Info);
+            }
+            
+            if (avatarChanged && targetAvatar != null)
             {
                 availableRenderers = targetAvatar.GetComponentsInChildren<SkinnedMeshRenderer>();
                 
@@ -2153,6 +2164,7 @@ namespace VRChatAvatarTools
                     case "targetMesh": return "1.アバターの選択(GameObject)";
                     case "avatar": return "アバターを選択";
                     case "clear": return "クリア";
+                    case "avatarLockedHint": return "💡 アバターを変更するには「クリア」ボタンを押してください";
                     case "selectMesh": return "メッシュを選択:";
                     case "selectMeshPrompt": return "メッシュを選択してください";
                     case "hideOtherMeshes": return "他のメッシュを隠す";
@@ -2242,6 +2254,7 @@ namespace VRChatAvatarTools
                     case "targetMesh": return "1. Avatar Selection";
                     case "avatar": return "Select Avatar or GameObject";
                     case "clear": return "Clear";
+                    case "avatarLockedHint": return "💡 To change avatar, press the \"Clear\" button";
                     case "selectMesh": return "Select Mesh:";
                     case "selectMeshPrompt": return "Please select a mesh";
                     case "hideOtherMeshes": return "Hide Other Meshes";
