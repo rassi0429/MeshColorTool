@@ -116,44 +116,12 @@ namespace VRChatAvatarTools
             // Restore original materials if needed
             if (targetMeshRenderer != null && originalMaterials != null)
             {
-                Material[] currentMats = targetMeshRenderer.sharedMaterials;
-                for (int i = 0; i < currentMats.Length; i++)
-                {
-                }
-                
-                for (int i = 0; i < originalMaterials.Length; i++)
-                {
-                }
-                
-                if (workingMaterials != null)
-                {
-                    for (int i = 0; i < workingMaterials.Length; i++)
-                    {
-                    }
-                }
-                else
-                {
-                }
-                
-                if (availableMaterials != null)
-                {
-                    for (int i = 0; i < availableMaterials.Length; i++)
-                    {
-                    }
-                }
-                else
-                {
-                }
                 
                 // Create a new array to avoid reference issues, copying from originalMaterials
                 Material[] materialsToRestore = new Material[originalMaterials.Length];
                 for (int i = 0; i < originalMaterials.Length; i++)
                 {
                     materialsToRestore[i] = originalMaterials[i];
-                }
-                
-                for (int i = 0; i < materialsToRestore.Length; i++)
-                {
                 }
                 
                 // Use different restoration method based on material count
@@ -166,10 +134,6 @@ namespace VRChatAvatarTools
                     targetMeshRenderer.sharedMaterials = materialsToRestore;
                 }
                 
-                Material[] restoredMats = targetMeshRenderer.sharedMaterials;
-                for (int i = 0; i < restoredMats.Length; i++)
-                {
-                }
             }
             
             // Clean up everything
@@ -401,9 +365,6 @@ namespace VRChatAvatarTools
                 // Save original materials array (make a copy) - these NEVER change
                 Material[] currentMaterials = targetMeshRenderer.sharedMaterials;
                 
-                for (int i = 0; i < currentMaterials.Length; i++)
-                {
-                }
                 
                 // IMPORTANT: Create completely separate arrays to avoid reference sharing
                 originalMaterials = new Material[currentMaterials.Length];
@@ -429,13 +390,6 @@ namespace VRChatAvatarTools
                 originalMaterial = null;
                 originalTexture = null;
                 
-                for (int i = 0; i < originalMaterials.Length; i++)
-                {
-                }
-                
-                for (int i = 0; i < workingMaterials.Length; i++)
-                {
-                }
                 
                 // If only one material, select it automatically
                 if (availableMaterials.Length == 1)
