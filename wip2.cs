@@ -50,7 +50,8 @@ namespace VRChatAvatarTools
         
         // Multiple materials support
         private Material[] availableMaterials;
-        private Material[] originalMaterials; // 元のマテリアル配列全体を保存
+        private Material[] originalMaterials; // 元のマテリアル配列全体を保存（変更されない）
+        private Material[] workingMaterials; // 現在作業中のマテリアル配列
         private int selectedMaterialIndex = -1;
         
         // Safety component
@@ -90,8 +91,16 @@ namespace VRChatAvatarTools
             // Restore original materials if needed
             if (targetMeshRenderer != null && originalMaterials != null)
             {
-                targetMeshRenderer.sharedMaterials = originalMaterials;
-                debugInfo += "[OnDisable] Restored all materials\n";
+                if (originalMaterials.Length == 1)
+                {
+                    targetMeshRenderer.sharedMaterial = originalMaterials[0];
+                    debugInfo += "[OnDisable] Restored single material\n";
+                }
+                else
+                {
+                    targetMeshRenderer.sharedMaterials = originalMaterials;
+                    debugInfo += "[OnDisable] Restored multiple materials\n";
+                }
             }
             
             CleanupPreview();
@@ -105,8 +114,79 @@ namespace VRChatAvatarTools
             // Restore original materials if needed
             if (targetMeshRenderer != null && originalMaterials != null)
             {
-                targetMeshRenderer.sharedMaterials = originalMaterials;
-                debugInfo += "[Clear] Restored all materials\n";
+                debugInfo += "[Clear] === CLEAR AVATAR SELECTION DEBUG ===\n";
+                debugInfo += "[Clear] Current materials before restore:\n";
+                Material[] currentMats = targetMeshRenderer.sharedMaterials;
+                for (int i = 0; i < currentMats.Length; i++)
+                {
+                    debugInfo += $"  Current[{i}] {(currentMats[i] != null ? currentMats[i].name : "null")} (HashCode: {(currentMats[i] != null ? currentMats[i].GetHashCode().ToString() : "null")})\n";
+                }
+                
+                debugInfo += "[Clear] Original materials array contents:\n";
+                for (int i = 0; i < originalMaterials.Length; i++)
+                {
+                    debugInfo += $"  Original[{i}] {(originalMaterials[i] != null ? originalMaterials[i].name : "null")} (HashCode: {(originalMaterials[i] != null ? originalMaterials[i].GetHashCode().ToString() : "null")})\n";
+                }
+                
+                debugInfo += "[Clear] Working materials array contents:\n";
+                if (workingMaterials != null)
+                {
+                    for (int i = 0; i < workingMaterials.Length; i++)
+                    {
+                        debugInfo += $"  Working[{i}] {(workingMaterials[i] != null ? workingMaterials[i].name : "null")} (HashCode: {(workingMaterials[i] != null ? workingMaterials[i].GetHashCode().ToString() : "null")})\n";
+                    }
+                }
+                else
+                {
+                    debugInfo += "  Working materials array is NULL\n";
+                }
+                
+                debugInfo += "[Clear] Available materials array contents:\n";
+                if (availableMaterials != null)
+                {
+                    for (int i = 0; i < availableMaterials.Length; i++)
+                    {
+                        debugInfo += $"  Available[{i}] {(availableMaterials[i] != null ? availableMaterials[i].name : "null")} (HashCode: {(availableMaterials[i] != null ? availableMaterials[i].GetHashCode().ToString() : "null")})\n";
+                    }
+                }
+                else
+                {
+                    debugInfo += "  Available materials array is NULL\n";
+                }
+                
+                // Create a new array to avoid reference issues, copying from originalMaterials
+                Material[] materialsToRestore = new Material[originalMaterials.Length];
+                for (int i = 0; i < originalMaterials.Length; i++)
+                {
+                    materialsToRestore[i] = originalMaterials[i];
+                    debugInfo += $"[Clear] Copying material {i}: {(originalMaterials[i] != null ? originalMaterials[i].name : "null")} -> {(materialsToRestore[i] != null ? materialsToRestore[i].name : "null")}\n";
+                }
+                
+                debugInfo += "[Clear] About to restore materials array:\n";
+                for (int i = 0; i < materialsToRestore.Length; i++)
+                {
+                    debugInfo += $"  ToRestore[{i}] {(materialsToRestore[i] != null ? materialsToRestore[i].name : "null")}\n";
+                }
+                
+                // Use different restoration method based on material count
+                if (materialsToRestore.Length == 1)
+                {
+                    debugInfo += "[Clear] Single material - using sharedMaterial\n";
+                    targetMeshRenderer.sharedMaterial = materialsToRestore[0];
+                }
+                else
+                {
+                    debugInfo += "[Clear] Multiple materials - using sharedMaterials\n";
+                    targetMeshRenderer.sharedMaterials = materialsToRestore;
+                }
+                
+                debugInfo += "[Clear] Materials after restore:\n";
+                Material[] restoredMats = targetMeshRenderer.sharedMaterials;
+                for (int i = 0; i < restoredMats.Length; i++)
+                {
+                    debugInfo += $"  Restored[{i}] {(restoredMats[i] != null ? restoredMats[i].name : "null")} (HashCode: {(restoredMats[i] != null ? restoredMats[i].GetHashCode().ToString() : "null")})\n";
+                }
+                debugInfo += "[Clear] === END CLEAR DEBUG ===\n";
             }
             
             // Clean up everything
@@ -126,6 +206,7 @@ namespace VRChatAvatarTools
             selectedRendererIndex = -1;
             availableMaterials = null;
             originalMaterials = null;
+            workingMaterials = null;
             selectedMaterialIndex = -1;
             originalRendererStates.Clear();
             debugInfo = "";
@@ -343,10 +424,18 @@ namespace VRChatAvatarTools
         private void SelectMeshRenderer(SkinnedMeshRenderer renderer)
         {
             // Restore the previous mesh's materials before switching
-            if (targetMeshRenderer != null && originalMaterials != null)
+            if (targetMeshRenderer != null && workingMaterials != null)
             {
-                targetMeshRenderer.sharedMaterials = originalMaterials;
-                debugInfo += "[SelectRenderer] Restored previous materials\n";
+                if (workingMaterials.Length == 1)
+                {
+                    targetMeshRenderer.sharedMaterial = workingMaterials[0];
+                    debugInfo += "[SelectRenderer] Restored previous single working material\n";
+                }
+                else
+                {
+                    targetMeshRenderer.sharedMaterials = workingMaterials;
+                    debugInfo += "[SelectRenderer] Restored previous multiple working materials\n";
+                }
                 RemovePreview();
             }
             
@@ -358,21 +447,50 @@ namespace VRChatAvatarTools
             {
                 targetMesh = targetMeshRenderer.sharedMesh;
                 
-                // Save original materials array (make a copy)
+                // Save original materials array (make a copy) - these NEVER change
                 Material[] currentMaterials = targetMeshRenderer.sharedMaterials;
+                
+                debugInfo += $"[SelectRenderer] Current renderer materials:\n";
+                for (int i = 0; i < currentMaterials.Length; i++)
+                {
+                    debugInfo += $"  Current[{i}] {(currentMaterials[i] != null ? currentMaterials[i].name : "null")} (HashCode: {(currentMaterials[i] != null ? currentMaterials[i].GetHashCode().ToString() : "null")})\n";
+                }
+                
+                // IMPORTANT: Create completely separate arrays to avoid reference sharing
                 originalMaterials = new Material[currentMaterials.Length];
                 for (int i = 0; i < currentMaterials.Length; i++)
                 {
                     originalMaterials[i] = currentMaterials[i];
                 }
                 
-                // Get all materials for selection
-                availableMaterials = currentMaterials;
+                // Create working materials array (this is what gets modified)
+                workingMaterials = new Material[currentMaterials.Length];
+                for (int i = 0; i < currentMaterials.Length; i++)
+                {
+                    workingMaterials[i] = currentMaterials[i];
+                }
+                
+                // Create separate available materials array (no reference sharing)
+                availableMaterials = new Material[currentMaterials.Length];
+                for (int i = 0; i < currentMaterials.Length; i++)
+                {
+                    availableMaterials[i] = currentMaterials[i];
+                }
                 selectedMaterialIndex = -1; // Reset selection
                 originalMaterial = null;
                 originalTexture = null;
                 
-                debugInfo += $"[SelectRenderer] Saved {originalMaterials.Length} original materials\n";
+                debugInfo += $"[SelectRenderer] Saved original materials:\n";
+                for (int i = 0; i < originalMaterials.Length; i++)
+                {
+                    debugInfo += $"  Original[{i}] {(originalMaterials[i] != null ? originalMaterials[i].name : "null")} (HashCode: {(originalMaterials[i] != null ? originalMaterials[i].GetHashCode().ToString() : "null")})\n";
+                }
+                
+                debugInfo += $"[SelectRenderer] Working materials:\n";
+                for (int i = 0; i < workingMaterials.Length; i++)
+                {
+                    debugInfo += $"  Working[{i}] {(workingMaterials[i] != null ? workingMaterials[i].name : "null")} (HashCode: {(workingMaterials[i] != null ? workingMaterials[i].GetHashCode().ToString() : "null")})\n";
+                }
                 
                 // If only one material, select it automatically
                 if (availableMaterials.Length == 1)
@@ -389,20 +507,28 @@ namespace VRChatAvatarTools
             if (availableMaterials == null || materialIndex < 0 || materialIndex >= availableMaterials.Length)
                 return;
                 
-            // Restore the previous material if any (from original materials array)
-            if (selectedMaterialIndex >= 0 && originalMaterials != null && selectedMaterialIndex < originalMaterials.Length)
+            // Restore the previous material if any (from working materials array)
+            if (selectedMaterialIndex >= 0 && workingMaterials != null && selectedMaterialIndex < workingMaterials.Length)
             {
                 Material[] materials = targetMeshRenderer.sharedMaterials;
-                materials[selectedMaterialIndex] = originalMaterials[selectedMaterialIndex];
-                targetMeshRenderer.sharedMaterials = materials;
-                debugInfo += $"[SelectMaterial] Restored material at index {selectedMaterialIndex}\n";
+                materials[selectedMaterialIndex] = workingMaterials[selectedMaterialIndex];
+                
+                if (materials.Length == 1)
+                {
+                    targetMeshRenderer.sharedMaterial = materials[0];
+                }
+                else
+                {
+                    targetMeshRenderer.sharedMaterials = materials;
+                }
+                debugInfo += $"[SelectMaterial] Restored working material at index {selectedMaterialIndex}\n";
                 RemovePreview();
             }
             
             RemoveSafetyComponent();
             
             selectedMaterialIndex = materialIndex;
-            originalMaterial = originalMaterials[materialIndex]; // Use original materials array
+            originalMaterial = originalMaterials[materialIndex]; // Use original materials array for texture reference
             
             if (originalMaterial != null && originalMaterial.mainTexture != null)
             {
@@ -1174,10 +1300,21 @@ namespace VRChatAvatarTools
             {
                 Material[] materials = targetMeshRenderer.sharedMaterials;
                 materials[selectedMaterialIndex] = newMaterial;
-                targetMeshRenderer.sharedMaterials = materials;
+                
+                if (materials.Length == 1)
+                {
+                    targetMeshRenderer.sharedMaterial = materials[0];
+                    debugInfo += $"[Apply] Applied new single material: {newMaterial.name}\n";
+                }
+                else
+                {
+                    targetMeshRenderer.sharedMaterials = materials;
+                    debugInfo += $"[Apply] Applied new material to slot {selectedMaterialIndex}: {newMaterial.name}\n";
+                }
+                
+                // Update working materials but keep original materials unchanged
+                workingMaterials[selectedMaterialIndex] = newMaterial;
                 availableMaterials[selectedMaterialIndex] = newMaterial;
-                // Update the original materials array as well (this becomes the new "original")
-                originalMaterials[selectedMaterialIndex] = newMaterial;
             }
             else
             {
@@ -1583,10 +1720,39 @@ namespace VRChatAvatarTools
         
         private void ResetToOriginal()
         {
-            if (originalMaterial != null && targetMeshRenderer != null)
+            if (originalMaterials != null && targetMeshRenderer != null)
             {
-                targetMeshRenderer.sharedMaterial = originalMaterial;
+                debugInfo += "[Reset] Resetting to original materials:\n";
+                for (int i = 0; i < originalMaterials.Length; i++)
+                {
+                    debugInfo += $"  [{i}] {(originalMaterials[i] != null ? originalMaterials[i].name : "null")}\n";
+                }
+                
+                if (originalMaterials.Length == 1)
+                {
+                    targetMeshRenderer.sharedMaterial = originalMaterials[0];
+                }
+                else
+                {
+                    targetMeshRenderer.sharedMaterials = originalMaterials;
+                }
+                
+                // Reset working materials to original state
+                workingMaterials = new Material[originalMaterials.Length];
+                for (int i = 0; i < originalMaterials.Length; i++)
+                {
+                    workingMaterials[i] = originalMaterials[i];
+                }
+                availableMaterials = workingMaterials;
+                
+                // Clear selections and reset material selection
+                ClearAllSelections();
+                selectedMaterialIndex = -1;
+                originalMaterial = null;
+                originalTexture = null;
+                
                 RemovePreview();
+                debugInfo += "[Reset] Reset to original materials complete\n";
             }
         }
         
@@ -1662,7 +1828,15 @@ namespace VRChatAvatarTools
             {
                 Material[] materials = targetMeshRenderer.sharedMaterials;
                 materials[selectedMaterialIndex] = previewMaterial;
-                targetMeshRenderer.sharedMaterials = materials;
+                
+                if (materials.Length == 1)
+                {
+                    targetMeshRenderer.sharedMaterial = materials[0];
+                }
+                else
+                {
+                    targetMeshRenderer.sharedMaterials = materials;
+                }
             }
             else
             {
@@ -1674,14 +1848,22 @@ namespace VRChatAvatarTools
         
         private void RemovePreview()
         {
-            if (targetMeshRenderer != null && originalMaterials != null && selectedMaterialIndex >= 0)
+            if (targetMeshRenderer != null && workingMaterials != null && selectedMaterialIndex >= 0)
             {
                 Material[] materials = targetMeshRenderer.sharedMaterials;
-                if (selectedMaterialIndex < originalMaterials.Length)
+                if (selectedMaterialIndex < workingMaterials.Length)
                 {
-                    materials[selectedMaterialIndex] = originalMaterials[selectedMaterialIndex];
-                    targetMeshRenderer.sharedMaterials = materials;
-                    debugInfo += $"[RemovePreview] Restored material at index {selectedMaterialIndex}\n";
+                    materials[selectedMaterialIndex] = workingMaterials[selectedMaterialIndex];
+                    
+                    if (materials.Length == 1)
+                    {
+                        targetMeshRenderer.sharedMaterial = materials[0];
+                    }
+                    else
+                    {
+                        targetMeshRenderer.sharedMaterials = materials;
+                    }
+                    debugInfo += $"[RemovePreview] Restored working material at index {selectedMaterialIndex}\n";
                 }
             }
             
@@ -1863,12 +2045,18 @@ namespace VRChatAvatarTools
         {
             debugInfo += $"[Safety] SetupSafetyComponent called\n";
             debugInfo += $"[Safety] targetMeshRenderer: {(targetMeshRenderer != null ? targetMeshRenderer.name : "null")}\n";
-            debugInfo += $"[Safety] originalMaterial: {(originalMaterial != null ? originalMaterial.name : "null")}\n";
+            debugInfo += $"[Safety] originalMaterials: {(originalMaterials != null ? originalMaterials.Length.ToString() : "null")}\n";
             debugInfo += $"[Safety] windowGUID: {windowGUID}\n";
             
-            if (targetMeshRenderer != null && originalMaterial != null)
+            if (targetMeshRenderer != null && originalMaterials != null && originalMaterials.Length > 0)
             {
-                currentSafety = MeshColorMaterialSafety.CreateSafety(targetMeshRenderer, originalMaterial, windowGUID);
+                debugInfo += $"[Safety] Creating safety with {originalMaterials.Length} materials:\n";
+                for (int i = 0; i < originalMaterials.Length; i++)
+                {
+                    debugInfo += $"[Safety]   Material[{i}]: {(originalMaterials[i] != null ? originalMaterials[i].name : "null")}\n";
+                }
+                
+                currentSafety = MeshColorMaterialSafety.CreateSafety(targetMeshRenderer, originalMaterials, windowGUID);
                 if (currentSafety != null)
                 {
                     debugInfo += $"[Safety] Material safety component created successfully on {targetMeshRenderer.gameObject.name}\n";
@@ -1883,7 +2071,7 @@ namespace VRChatAvatarTools
             }
             else
             {
-                debugInfo += "[Safety] Cannot create safety component - missing renderer or material\n";
+                debugInfo += "[Safety] Cannot create safety component - missing renderer or materials\n";
             }
         }
         
