@@ -1484,7 +1484,6 @@ namespace VRChatAvatarTools
                 var jobSetupStart = System.Diagnostics.Stopwatch.StartNew();
                 NativeArray<Color32> pixelArray = new NativeArray<Color32>(allPixels, Allocator.TempJob);
                 NativeArray<Vector2> triangleUVArray = new NativeArray<Vector2>(allTriangleUVs.ToArray(), Allocator.TempJob);
-                NativeArray<Vector2Int> dummyPaintedPixels = new NativeArray<Vector2Int>(0, Allocator.TempJob);
                 jobSetupStart.Stop();
                 Debug.Log($"[PERF] Job setup: {jobSetupStart.ElapsedMilliseconds}ms");
                 
@@ -1505,7 +1504,6 @@ namespace VRChatAvatarTools
                 {
                     pixels = pixelArray,
                     triangleUVs = triangleUVArray,
-                    paintedPixelsList = dummyPaintedPixels,
                     textureWidth = workingTexture.width,
                     textureHeight = workingTexture.height,
                     paintColor = new Color32((byte)(blendColor.r * 255), (byte)(blendColor.g * 255), (byte)(blendColor.b * 255), 255),
@@ -1528,7 +1526,6 @@ namespace VRChatAvatarTools
                 // Clean up
                 pixelArray.Dispose();
                 triangleUVArray.Dispose();
-                dummyPaintedPixels.Dispose();
             }
             
             // Set entire texture pixels once
@@ -2575,7 +2572,6 @@ namespace VRChatAvatarTools
     {
         public NativeArray<Color32> pixels;
         [ReadOnly] public NativeArray<Vector2> triangleUVs;
-        [ReadOnly] public NativeArray<Vector2Int> paintedPixelsList;
         [ReadOnly] public int textureWidth;
         [ReadOnly] public int textureHeight;
         [ReadOnly] public Color32 paintColor;
@@ -2585,6 +2581,9 @@ namespace VRChatAvatarTools
         public void Execute()
         {
             int triangleCount = triangleUVs.Length / 3;
+            
+            // Create a hashset equivalent using NativeArray for processed pixels
+            NativeArray<bool> processedPixels = new NativeArray<bool>(textureWidth * textureHeight, Allocator.Temp);
             
             for (int triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++)
             {
@@ -2607,11 +2606,11 @@ namespace VRChatAvatarTools
                 int x2 = (int)(uv2.x * (textureWidth - 1));
                 int y2 = (int)(uv2.y * (textureHeight - 1));
                 
-                // Calculate tight bounds
-                int minX = math.max(0, math.min(x0, math.min(x1, x2)));
-                int maxX = math.min(textureWidth - 1, math.max(x0, math.max(x1, x2)));
-                int minY = math.max(0, math.min(y0, math.min(y1, y2)));
-                int maxY = math.min(textureHeight - 1, math.max(y0, math.max(y1, y2)));
+                // Expand bounds by 2 pixels for mipmap support and edge smoothing
+                int minX = math.max(0, math.min(x0, math.min(x1, x2)) - 2);
+                int maxX = math.min(textureWidth - 1, math.max(x0, math.max(x1, x2)) + 2);
+                int minY = math.max(0, math.min(y0, math.min(y1, y2)) - 2);
+                int maxY = math.min(textureHeight - 1, math.max(y0, math.max(y1, y2)) + 2);
                 
                 // Skip degenerate triangles
                 if (maxX <= minX || maxY <= minY) continue;
@@ -2622,29 +2621,35 @@ namespace VRChatAvatarTools
                 
                 for (int y = minY; y <= maxY; y++)
                 {
-                    bool foundPixelInRow = false;
                     for (int x = minX; x <= maxX; x++)
                     {
-                        if (IsPointInTriangleFast(x, y, x0, y0, x1, y1, x2, y2))
+                        bool isInTriangle = IsPointInTriangleFast(x, y, x0, y0, x1, y1, x2, y2);
+                        float distanceToTriangle = 0f;
+                        
+                        if (!isInTriangle)
                         {
-                            foundPixelInRow = true;
+                            // Fast distance calculation for edge smoothing
+                            distanceToTriangle = DistanceToTriangleFast(x, y, x0, y0, x1, y1, x2, y2);
+                        }
+                        
+                        // Paint if inside triangle or within 2 pixels of triangle (for smooth edges)
+                        if (isInTriangle || distanceToTriangle <= 2f)
+                        {
                             int pixelIndex = y * textureWidth + x;
                             
-                            if (pixelIndex >= 0 && pixelIndex < pixels.Length)
+                            if (pixelIndex >= 0 && pixelIndex < pixels.Length && !processedPixels[pixelIndex])
                             {
+                                processedPixels[pixelIndex] = true;
                                 Color32 originalColor = pixels[pixelIndex];
                                 Color32 blendedColor = ApplyBlendModeFast(originalColor, paintColor, blendMode, strength);
                                 pixels[pixelIndex] = blendedColor;
                             }
                         }
-                        else if (foundPixelInRow)
-                        {
-                            // Early exit: we've passed through the triangle in this row
-                            break;
-                        }
                     }
                 }
             }
+            
+            processedPixels.Dispose();
         }
         
         private bool IsPointInTriangleFast(int px, int py, int x0, int y0, int x1, int y1, int x2, int y2)
@@ -2664,6 +2669,38 @@ namespace VRChatAvatarTools
             {
                 return a <= 0 && b <= 0 && (a + b) >= denom;
             }
+        }
+        
+        private float DistanceToTriangleFast(int px, int py, int x0, int y0, int x1, int y1, int x2, int y2)
+        {
+            // Fast approximation of distance to triangle edges
+            float dist1 = DistanceToLineSegmentFast(px, py, x0, y0, x1, y1);
+            float dist2 = DistanceToLineSegmentFast(px, py, x1, y1, x2, y2);
+            float dist3 = DistanceToLineSegmentFast(px, py, x2, y2, x0, y0);
+            
+            return math.min(dist1, math.min(dist2, dist3));
+        }
+        
+        private float DistanceToLineSegmentFast(int px, int py, int x1, int y1, int x2, int y2)
+        {
+            int dx = x2 - x1;
+            int dy = y2 - y1;
+            int lengthSquared = dx * dx + dy * dy;
+            
+            if (lengthSquared == 0)
+            {
+                dx = px - x1;
+                dy = py - y1;
+                return math.sqrt(dx * dx + dy * dy);
+            }
+            
+            float t = math.clamp((float)((px - x1) * dx + (py - y1) * dy) / lengthSquared, 0f, 1f);
+            float projX = x1 + t * dx;
+            float projY = y1 + t * dy;
+            
+            dx = (int)(px - projX);
+            dy = (int)(py - projY);
+            return math.sqrt(dx * dx + dy * dy);
         }
         
         private Color32 ApplyBlendModeFast(Color32 original, Color32 paint, int blendMode, float strength)
