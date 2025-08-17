@@ -384,11 +384,11 @@ namespace VRChatAvatarTools
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField(GetLocalizedText("meshSelection"), EditorStyles.boldLabel);
             
-            EditorGUI.BeginChangeCheck();
-            isSelectionMode = EditorGUILayout.Toggle(GetLocalizedText("selectionMode"), isSelectionMode);
-            
-            if (EditorGUI.EndChangeCheck())
+            // Selection mode button
+            GUI.backgroundColor = isSelectionMode ? new Color(0.3f, 1f, 0.3f) : Color.white;
+            if (GUILayout.Button(isSelectionMode ? GetLocalizedText("selectionModeOn") : GetLocalizedText("selectionModeOff"), GUILayout.Height(30)))
             {
+                isSelectionMode = !isSelectionMode;
                 SceneView.RepaintAll();
                 
                 if (isSelectionMode)
@@ -404,19 +404,22 @@ namespace VRChatAvatarTools
                     Tools.current = Tool.Move;
                 }
             }
+            GUI.backgroundColor = Color.white;
             
             if (isSelectionMode)
             {
+                EditorGUILayout.HelpBox(GetLocalizedText("sceneViewHint"), MessageType.Info);
+                
                 EditorGUILayout.Space();
                 isMultiSelectionMode = EditorGUILayout.Toggle(GetLocalizedText("multiSelectionMode"), isMultiSelectionMode);
                 
                 if (isMultiSelectionMode)
                 {
-                    EditorGUILayout.HelpBox(GetLocalizedText("clickAdd"), MessageType.Info);
+                    EditorGUILayout.HelpBox(GetLocalizedText("clickAdd"), MessageType.None);
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox(GetLocalizedText("clickNew"), MessageType.Info);
+                    EditorGUILayout.HelpBox(GetLocalizedText("clickNew"), MessageType.None);
                 }
                 
                 // Selection Settings
@@ -1812,6 +1815,9 @@ namespace VRChatAvatarTools
                     // Selection mode
                     case "meshSelection": return "2.色を変えるメッシュ選択";
                     case "selectionMode": return "選択モード";
+                    case "selectionModeOn": return "選択モード ON (クリックで無効)";
+                    case "selectionModeOff": return "選択モード OFF (クリックで有効)";
+                    case "sceneViewHint": return "💡 Sceneビューでメッシュをクリックして選択してください";
                     case "multiSelectionMode": return "複数選択モード";
                     case "clickAdd": return "クリック: 選択に追加 | Ctrl+クリック: 選択から削除";
                     case "clickNew": return "クリック: 新しいエリアを選択";
@@ -1895,6 +1901,9 @@ namespace VRChatAvatarTools
                     // Selection mode
                     case "meshSelection": return "Mesh Selection";
                     case "selectionMode": return "Selection Mode";
+                    case "selectionModeOn": return "Selection Mode ON (Click to disable)";
+                    case "selectionModeOff": return "Selection Mode OFF (Click to enable)";
+                    case "sceneViewHint": return "💡 Click on mesh in Scene view to select";
                     case "multiSelectionMode": return "Multi Selection Mode";
                     case "clickAdd": return "Click: Add to selection | Ctrl+Click: Remove from selection";
                     case "clickNew": return "Click: Select new area";
