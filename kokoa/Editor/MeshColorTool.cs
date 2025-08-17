@@ -212,10 +212,6 @@ namespace VRChatAvatarTools
             EditorGUILayout.Space();
             DrawActions();
             
-            
-            // EditorGUILayout.Space();
-            // DrawDebugInfo();
-            
             EditorGUILayout.EndScrollView();
             
             if (needsPreviewUpdate && showPreview && meshSelections.Count > 0)
@@ -559,14 +555,6 @@ namespace VRChatAvatarTools
                 ClearAllSelections();
             }
             
-            // if (targetMeshRenderer != null && tempCollider == null)
-            // {
-            //     if (GUILayout.Button(GetLocalizedText("setupCollider")))
-            //     {
-            //         SetupTempCollider();
-            //     }
-            // }
-            
             EditorGUILayout.EndVertical();
         }
         
@@ -707,27 +695,6 @@ namespace VRChatAvatarTools
             
             EditorGUILayout.EndVertical();
         }
-        
-        
-        // private void DrawDebugInfo()
-        // {
-        //     EditorGUILayout.BeginVertical("box");
-            
-            
-        //     {
-        //         EditorGUI.indentLevel++;
-                
-        //         EditorGUILayout.TextArea(debugInfo, GUILayout.Height(100));
-                
-        //         if (GUILayout.Button(GetLocalizedText("clearDebug")))
-        //         {
-        //         }
-                
-        //         EditorGUI.indentLevel--;
-        //     }
-            
-        //     EditorGUILayout.EndVertical();
-        // }
         
         private void OnSceneGUI(SceneView sceneView)
         {
@@ -2950,88 +2917,6 @@ namespace VRChatAvatarTools
                 (byte)(math.clamp(result.b, 0f, 1f) * 255f),
                 255
             );
-        }
-        
-        private bool IsPointInTriangle(float px, float py, float x0, float y0, float x1, float y1, float x2, float y2)
-        {
-            float denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
-            if (Mathf.Abs(denom) < 1e-10f) return false;
-            
-            float a = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom;
-            float b = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom;
-            float c = 1 - a - b;
-            
-            return a >= 0 && b >= 0 && c >= 0;
-        }
-        
-        private float DistanceToTriangle(float px, float py, float x0, float y0, float x1, float y1, float x2, float y2)
-        {
-            float distToEdge1 = DistanceToLineSegment(px, py, x0, y0, x1, y1);
-            float distToEdge2 = DistanceToLineSegment(px, py, x1, y1, x2, y2);
-            float distToEdge3 = DistanceToLineSegment(px, py, x2, y2, x0, y0);
-            
-            return Mathf.Min(distToEdge1, Mathf.Min(distToEdge2, distToEdge3));
-        }
-        
-        private float DistanceToLineSegment(float px, float py, float x1, float y1, float x2, float y2)
-        {
-            float dx = x2 - x1;
-            float dy = y2 - y1;
-            float lengthSquared = dx * dx + dy * dy;
-            
-            if (lengthSquared < 1e-10f)
-            {
-                dx = px - x1;
-                dy = py - y1;
-                return Mathf.Sqrt(dx * dx + dy * dy);
-            }
-            
-            float t = Mathf.Clamp01(((px - x1) * dx + (py - y1) * dy) / lengthSquared);
-            float projX = x1 + t * dx;
-            float projY = y1 + t * dy;
-            
-            dx = px - projX;
-            dy = py - projY;
-            return Mathf.Sqrt(dx * dx + dy * dy);
-        }
-        
-        private Color32 ApplyBlendMode(Color32 original, Color32 paint, int blendMode, float strength)
-        {
-            // Simplified blend mode for Job System (avoiding enum)
-            // 0 = Color, 1 = Multiply, 2 = Additive, 3 = Overlay
-            Color originalColor = original;
-            Color paintColor = paint;
-            Color result;
-            
-            switch (blendMode)
-            {
-                case 1: // Multiply
-                    result = originalColor * paintColor;
-                    break;
-                case 2: // Additive
-                    result = originalColor + paintColor;
-                    break;
-                case 3: // Overlay
-                    // Simple overlay approximation
-                    result = new Color(
-                        originalColor.r < 0.5f ? 2f * originalColor.r * paintColor.r : 1f - 2f * (1f - originalColor.r) * (1f - paintColor.r),
-                        originalColor.g < 0.5f ? 2f * originalColor.g * paintColor.g : 1f - 2f * (1f - originalColor.g) * (1f - paintColor.g),
-                        originalColor.b < 0.5f ? 2f * originalColor.b * paintColor.b : 1f - 2f * (1f - originalColor.b) * (1f - paintColor.b),
-                        originalColor.a
-                    );
-                    break;
-                default: // Color (0) - Photoshop-style
-                    // Apply hue and saturation while preserving luminance
-                    Vector3 baseHSL = MeshColorEditorWindow.RGBToHSL(originalColor);
-                    Vector3 blendHSL = MeshColorEditorWindow.RGBToHSL(paintColor);
-                    Vector3 resultHSL = new Vector3(blendHSL.x, blendHSL.y, baseHSL.z);
-                    result = MeshColorEditorWindow.HSLToRGB(resultHSL);
-                    result.a = originalColor.a;
-                    break;
-            }
-            
-            result = Color.Lerp(originalColor, result, strength);
-            return new Color32((byte)(result.r * 255), (byte)(result.g * 255), (byte)(result.b * 255), 255);
         }
     }
 }
