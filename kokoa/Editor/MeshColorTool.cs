@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEditor;
 using System.Collections.Generic;
-using System.Linq;
 using System;
 using Unity.Collections;
 using Unity.Jobs;
@@ -73,11 +72,6 @@ namespace VRChatAvatarTools
         private Texture2D previewTexture;
         private bool needsPreviewUpdate = false;
         
-        // Debug information
-        private string debugInfo = "";
-        private Vector3 lastRaycastPoint;
-        private bool lastRaycastHit = false;
-        private bool showDebugInfo = false;
         
         [MenuItem("Tools/Mesh Color Editor")]
         public static void ShowWindow()
@@ -103,12 +97,10 @@ namespace VRChatAvatarTools
                 if (originalMaterials.Length == 1)
                 {
                     targetMeshRenderer.sharedMaterial = originalMaterials[0];
-                    debugInfo += "[OnDisable] Restored single material\n";
                 }
                 else
                 {
                     targetMeshRenderer.sharedMaterials = originalMaterials;
-                    debugInfo += "[OnDisable] Restored multiple materials\n";
                 }
             }
             
@@ -124,44 +116,33 @@ namespace VRChatAvatarTools
             // Restore original materials if needed
             if (targetMeshRenderer != null && originalMaterials != null)
             {
-                debugInfo += "[Clear] === CLEAR AVATAR SELECTION DEBUG ===\n";
-                debugInfo += "[Clear] Current materials before restore:\n";
                 Material[] currentMats = targetMeshRenderer.sharedMaterials;
                 for (int i = 0; i < currentMats.Length; i++)
                 {
-                    debugInfo += $"  Current[{i}] {(currentMats[i] != null ? currentMats[i].name : "null")} (HashCode: {(currentMats[i] != null ? currentMats[i].GetHashCode().ToString() : "null")})\n";
                 }
                 
-                debugInfo += "[Clear] Original materials array contents:\n";
                 for (int i = 0; i < originalMaterials.Length; i++)
                 {
-                    debugInfo += $"  Original[{i}] {(originalMaterials[i] != null ? originalMaterials[i].name : "null")} (HashCode: {(originalMaterials[i] != null ? originalMaterials[i].GetHashCode().ToString() : "null")})\n";
                 }
                 
-                debugInfo += "[Clear] Working materials array contents:\n";
                 if (workingMaterials != null)
                 {
                     for (int i = 0; i < workingMaterials.Length; i++)
                     {
-                        debugInfo += $"  Working[{i}] {(workingMaterials[i] != null ? workingMaterials[i].name : "null")} (HashCode: {(workingMaterials[i] != null ? workingMaterials[i].GetHashCode().ToString() : "null")})\n";
                     }
                 }
                 else
                 {
-                    debugInfo += "  Working materials array is NULL\n";
                 }
                 
-                debugInfo += "[Clear] Available materials array contents:\n";
                 if (availableMaterials != null)
                 {
                     for (int i = 0; i < availableMaterials.Length; i++)
                     {
-                        debugInfo += $"  Available[{i}] {(availableMaterials[i] != null ? availableMaterials[i].name : "null")} (HashCode: {(availableMaterials[i] != null ? availableMaterials[i].GetHashCode().ToString() : "null")})\n";
                     }
                 }
                 else
                 {
-                    debugInfo += "  Available materials array is NULL\n";
                 }
                 
                 // Create a new array to avoid reference issues, copying from originalMaterials
@@ -169,34 +150,26 @@ namespace VRChatAvatarTools
                 for (int i = 0; i < originalMaterials.Length; i++)
                 {
                     materialsToRestore[i] = originalMaterials[i];
-                    debugInfo += $"[Clear] Copying material {i}: {(originalMaterials[i] != null ? originalMaterials[i].name : "null")} -> {(materialsToRestore[i] != null ? materialsToRestore[i].name : "null")}\n";
                 }
                 
-                debugInfo += "[Clear] About to restore materials array:\n";
                 for (int i = 0; i < materialsToRestore.Length; i++)
                 {
-                    debugInfo += $"  ToRestore[{i}] {(materialsToRestore[i] != null ? materialsToRestore[i].name : "null")}\n";
                 }
                 
                 // Use different restoration method based on material count
                 if (materialsToRestore.Length == 1)
                 {
-                    debugInfo += "[Clear] Single material - using sharedMaterial\n";
                     targetMeshRenderer.sharedMaterial = materialsToRestore[0];
                 }
                 else
                 {
-                    debugInfo += "[Clear] Multiple materials - using sharedMaterials\n";
                     targetMeshRenderer.sharedMaterials = materialsToRestore;
                 }
                 
-                debugInfo += "[Clear] Materials after restore:\n";
                 Material[] restoredMats = targetMeshRenderer.sharedMaterials;
                 for (int i = 0; i < restoredMats.Length; i++)
                 {
-                    debugInfo += $"  Restored[{i}] {(restoredMats[i] != null ? restoredMats[i].name : "null")} (HashCode: {(restoredMats[i] != null ? restoredMats[i].GetHashCode().ToString() : "null")})\n";
                 }
-                debugInfo += "[Clear] === END CLEAR DEBUG ===\n";
             }
             
             // Clean up everything
@@ -219,7 +192,6 @@ namespace VRChatAvatarTools
             workingMaterials = null;
             selectedMaterialIndex = -1;
             originalRendererStates.Clear();
-            debugInfo = "";
             
             // Reset selection mode
             isSelectionMode = false;
@@ -277,8 +249,8 @@ namespace VRChatAvatarTools
             DrawActions();
             
             
-            EditorGUILayout.Space();
-            DrawDebugInfo();
+            // EditorGUILayout.Space();
+            // DrawDebugInfo();
             
             EditorGUILayout.EndScrollView();
             
@@ -373,10 +345,6 @@ namespace VRChatAvatarTools
             if (targetMeshRenderer != null)
             {
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField(GetLocalizedText("meshInfo"), EditorStyles.boldLabel);
-                EditorGUILayout.LabelField(GetLocalizedText("mesh") + targetMesh.name);
-                EditorGUILayout.LabelField(GetLocalizedText("vertices") + targetMesh.vertexCount);
-                
                 // Material selection if multiple materials exist
                 if (availableMaterials != null && availableMaterials.Length > 1)
                 {
@@ -401,23 +369,6 @@ namespace VRChatAvatarTools
                         ClearAllSelections();
                     }
                 }
-                else
-                {
-                    EditorGUILayout.LabelField(GetLocalizedText("material") + (originalMaterial != null ? originalMaterial.name : "None"));
-                }
-
-                // if (originalTexture != null)
-                // {
-                //     // 絶対コピーするので出さない
-                //     // bool isReadable = IsTextureReadable(originalTexture);
-                //     // EditorGUILayout.LabelField(GetLocalizedText("textureReadable") + (isReadable ? GetLocalizedText("yes") : GetLocalizedText("no")), 
-                //     //     isReadable ? EditorStyles.miniLabel : EditorStyles.miniBoldLabel);
-                // }
-                
-                // if (tempCollider != null)
-                // {
-                //     EditorGUILayout.LabelField(GetLocalizedText("statusColliderReady"), EditorStyles.miniLabel);
-                // }
             }
             
             EditorGUILayout.EndVertical();
@@ -431,12 +382,10 @@ namespace VRChatAvatarTools
                 if (workingMaterials.Length == 1)
                 {
                     targetMeshRenderer.sharedMaterial = workingMaterials[0];
-                    debugInfo += "[SelectRenderer] Restored previous single working material\n";
                 }
                 else
                 {
                     targetMeshRenderer.sharedMaterials = workingMaterials;
-                    debugInfo += "[SelectRenderer] Restored previous multiple working materials\n";
                 }
                 RemovePreview();
             }
@@ -452,10 +401,8 @@ namespace VRChatAvatarTools
                 // Save original materials array (make a copy) - these NEVER change
                 Material[] currentMaterials = targetMeshRenderer.sharedMaterials;
                 
-                debugInfo += $"[SelectRenderer] Current renderer materials:\n";
                 for (int i = 0; i < currentMaterials.Length; i++)
                 {
-                    debugInfo += $"  Current[{i}] {(currentMaterials[i] != null ? currentMaterials[i].name : "null")} (HashCode: {(currentMaterials[i] != null ? currentMaterials[i].GetHashCode().ToString() : "null")})\n";
                 }
                 
                 // IMPORTANT: Create completely separate arrays to avoid reference sharing
@@ -482,16 +429,12 @@ namespace VRChatAvatarTools
                 originalMaterial = null;
                 originalTexture = null;
                 
-                debugInfo += $"[SelectRenderer] Saved original materials:\n";
                 for (int i = 0; i < originalMaterials.Length; i++)
                 {
-                    debugInfo += $"  Original[{i}] {(originalMaterials[i] != null ? originalMaterials[i].name : "null")} (HashCode: {(originalMaterials[i] != null ? originalMaterials[i].GetHashCode().ToString() : "null")})\n";
                 }
                 
-                debugInfo += $"[SelectRenderer] Working materials:\n";
                 for (int i = 0; i < workingMaterials.Length; i++)
                 {
-                    debugInfo += $"  Working[{i}] {(workingMaterials[i] != null ? workingMaterials[i].name : "null")} (HashCode: {(workingMaterials[i] != null ? workingMaterials[i].GetHashCode().ToString() : "null")})\n";
                 }
                 
                 // If only one material, select it automatically
@@ -523,7 +466,6 @@ namespace VRChatAvatarTools
                 {
                     targetMeshRenderer.sharedMaterials = materials;
                 }
-                debugInfo += $"[SelectMaterial] Restored working material at index {selectedMaterialIndex}\n";
                 RemovePreview();
             }
             
@@ -535,18 +477,12 @@ namespace VRChatAvatarTools
             if (originalMaterial != null && originalMaterial.mainTexture != null)
             {
                 originalTexture = originalMaterial.mainTexture as Texture2D;
-                
-                if (!IsTextureReadable(originalTexture))
-                {
-                    debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
-                }
             }
             else
             {
                 originalTexture = null;
             }
             
-            debugInfo += $"[SelectMaterial] Selected material {materialIndex}: {(originalMaterial != null ? originalMaterial.name : "null")}\n";
             
             SetupSafetyComponent();
         }
@@ -819,28 +755,25 @@ namespace VRChatAvatarTools
         }
         
         
-        private void DrawDebugInfo()
-        {
-            EditorGUILayout.BeginVertical("box");
+        // private void DrawDebugInfo()
+        // {
+        //     EditorGUILayout.BeginVertical("box");
             
-            showDebugInfo = EditorGUILayout.Foldout(showDebugInfo, GetLocalizedText("debugInformation"), true, EditorStyles.foldoutHeader);
             
-            if (showDebugInfo)
-            {
-                EditorGUI.indentLevel++;
+        //     {
+        //         EditorGUI.indentLevel++;
                 
-                EditorGUILayout.TextArea(debugInfo, GUILayout.Height(100));
+        //         EditorGUILayout.TextArea(debugInfo, GUILayout.Height(100));
                 
-                if (GUILayout.Button(GetLocalizedText("clearDebug")))
-                {
-                    debugInfo = "";
-                }
+        //         if (GUILayout.Button(GetLocalizedText("clearDebug")))
+        //         {
+        //         }
                 
-                EditorGUI.indentLevel--;
-            }
+        //         EditorGUI.indentLevel--;
+        //     }
             
-            EditorGUILayout.EndVertical();
-        }
+        //     EditorGUILayout.EndVertical();
+        // }
         
         private void OnSceneGUI(SceneView sceneView)
         {
@@ -861,8 +794,6 @@ namespace VRChatAvatarTools
             if (e.type == EventType.MouseMove && isSelectionMode && !isAltHeld)
             {
                 Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-                debugInfo = $"Mouse Ray Origin: {ray.origin}\n";
-                debugInfo += $"Mouse Ray Direction: {ray.direction}\n";
                 if (this != null) Repaint();
             }
             
@@ -872,68 +803,30 @@ namespace VRChatAvatarTools
             {
                 bool isCtrlHeld = e.control;
                 
-                debugInfo += "\n=== CLICK EVENT ===\n";
-                debugInfo += $"Multi Selection Mode: {isMultiSelectionMode}\n";
-                debugInfo += $"Ctrl key: {isCtrlHeld}\n";
                 Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
-                debugInfo += $"Click Position: {e.mousePosition}\n";
-                debugInfo += $"Ray: {ray.origin} -> {ray.direction}\n";
                 
                 if (tempCollider != null && targetMeshRenderer != null)
                 {
                     Mesh bakedMesh = new Mesh();
                     targetMeshRenderer.BakeMesh(bakedMesh);
                     tempCollider.sharedMesh = bakedMesh;
-                    debugInfo += "Mesh baked for current pose\n";
                 }
                 
                 RaycastHit hit;
                 
                 if (Physics.Raycast(ray, out hit))
                 {
-                    debugInfo += $"Physics.Raycast HIT: {hit.collider.gameObject.name}\n";
-                    debugInfo += $"Hit Point: {hit.point}\n";
-                    debugInfo += $"Hit Distance: {hit.distance}\n";
                     
                     if (hit.collider == tempCollider)
                     {
-                        debugInfo += "HIT TEMP COLLIDER! Selecting area...\n";
                         SelectMeshArea(hit.point);
-                        lastRaycastPoint = hit.point;
-                        lastRaycastHit = true;
                     }
                     else if (hit.collider.gameObject == targetMeshRenderer.gameObject)
                     {
-                        debugInfo += "HIT TARGET MESH! Selecting area...\n";
                         SelectMeshArea(hit.point);
-                        lastRaycastPoint = hit.point;
-                        lastRaycastHit = true;
-                    }
-                    else
-                    {
-                        debugInfo += $"Hit wrong object. Expected: {targetMeshRenderer.gameObject.name}\n";
-                    }
-                }
-                else
-                {
-                    debugInfo += "Physics.Raycast MISSED\n";
-                    
-                    if (Physics.Raycast(ray, out hit, 1000f))
-                    {
-                        debugInfo += $"Long distance raycast HIT: {hit.collider.gameObject.name}\n";
                     }
                 }
                 
-                if (tempCollider == null)
-                {
-                    debugInfo += "WARNING: Temp collider is NULL!\n";
-                }
-                else
-                {
-                    debugInfo += $"Temp collider exists: {tempCollider.gameObject.name}\n";
-                    debugInfo += $"Collider enabled: {tempCollider.enabled}\n";
-                    debugInfo += $"Mesh assigned: {tempCollider.sharedMesh != null}\n";
-                }
                 
                 if (this != null) Repaint();
                 e.Use();
@@ -949,20 +842,12 @@ namespace VRChatAvatarTools
             {
                 DrawAllSelections();
             }
-            
-            if (lastRaycastHit)
-            {
-                // Handles.color = Color.red;
-                // Handles.DrawWireCube(lastRaycastPoint, Vector3.one * 0.05f);
-            }
         }
         
         private void SelectMeshArea(Vector3 hitPoint)
         {
             if (targetMesh == null) return;
             
-            debugInfo += "\n--- SelectMeshArea CALLED ---\n";
-            debugInfo += $"Hit Point: {hitPoint}\n";
             
             Event currentEvent = Event.current;
             bool isCtrlHeld = currentEvent != null ? currentEvent.control : false;
@@ -977,10 +862,7 @@ namespace VRChatAvatarTools
             Vector3[] normals = targetMesh.normals;
             Transform meshTransform = targetMeshRenderer.transform;
             
-            debugInfo += $"Total vertices: {vertices.Length}\n";
-            debugInfo += $"Camera position: {cameraPosition}\n";
             
-            var stopwatch1 = System.Diagnostics.Stopwatch.StartNew();
             List<VertexCandidate> candidates = new List<VertexCandidate>();
             float threshold = 0.001f;
             
@@ -996,13 +878,8 @@ namespace VRChatAvatarTools
                     distance = distance
                 });
             }
-            stopwatch1.Stop();
-            Debug.Log($"[PERF] Vertex candidates creation: {stopwatch1.ElapsedMilliseconds}ms for {vertices.Length} vertices");
             
-            var stopwatch2 = System.Diagnostics.Stopwatch.StartNew();
             candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
-            stopwatch2.Stop();
-            Debug.Log($"[PERF] Candidates sorting: {stopwatch2.ElapsedMilliseconds}ms for {candidates.Count} candidates");
             
             if (candidates.Count == 0) return;
             
@@ -1021,7 +898,6 @@ namespace VRChatAvatarTools
                 }
             }
             
-            debugInfo += $"Found {closestVertices.Count} vertices within threshold\n";
             
             int selectedVertex = -1;
             float bestDot = -1f;
@@ -1034,7 +910,6 @@ namespace VRChatAvatarTools
                 
                 float dot = Vector3.Dot(worldNormal, toCameraDirection);
                 
-                debugInfo += $"Vertex {vertexIndex}: dot = {dot:F3}\n";
                 
                 if (dot > bestDot)
                 {
@@ -1043,7 +918,6 @@ namespace VRChatAvatarTools
                 }
             }
             
-            debugInfo += $"Selected vertex: {selectedVertex} (dot: {bestDot:F3})\n";
             
             if (selectedVertex >= 0)
             {
@@ -1056,10 +930,8 @@ namespace VRChatAvatarTools
                 {
                     Vector3 clickWorldPos = meshTransform.TransformPoint(vertices[selectedVertex]);
                     selectPositiveSide = clickWorldPos.x > xAxisThreshold;
-                    debugInfo += $"Limiting to X-axis: clicked on {(selectPositiveSide ? "positive" : "negative")} side (X = {clickWorldPos.x:F3})\n";
                 }
                 
-                var stopwatch3 = System.Diagnostics.Stopwatch.StartNew();
                 HashSet<int> visited = new HashSet<int>();
                 Queue<int> queue = new Queue<int>();
                 
@@ -1067,12 +939,10 @@ namespace VRChatAvatarTools
                 visited.Add(selectedVertex);
                 
                 int[] triangles = targetMesh.triangles;
-                debugInfo += $"Total triangles: {triangles.Length / 3}\n";
                 
                 int processedCount = 0;
                 bool isFirstVertex = true;
                 
-                Debug.Log($"[PERF] BFS traversal starting with {triangles.Length / 3} triangles");
                 while (queue.Count > 0 && processedCount < 1000)
                 {
                     processedCount++;
@@ -1094,7 +964,6 @@ namespace VRChatAvatarTools
                     
                     selectedVertices.Add(currentVertex);
                     
-                    var triangleLoopStart = System.Diagnostics.Stopwatch.StartNew();
                     for (int i = 0; i < triangles.Length; i += 3)
                     {
                         bool containsVertex = false;
@@ -1164,26 +1033,15 @@ namespace VRChatAvatarTools
                             }
                         }
                     }
-                    triangleLoopStart.Stop();
-                    if (processedCount % 10 == 0)
-                    {
-                        Debug.Log($"[PERF] Triangle loop iteration {processedCount}: {triangleLoopStart.ElapsedMilliseconds}ms");
-                    }
                     
                     isFirstVertex = false;
                 }
-                stopwatch3.Stop();
-                Debug.Log($"[PERF] BFS traversal complete: {stopwatch3.ElapsedMilliseconds}ms for {processedCount} iterations");
                 
-                debugInfo += $"Selected vertices: {selectedVertices.Count}\n";
-                debugInfo += $"Selected triangles: {selectedTriangles.Count}\n";
-                debugInfo += $"Processed iterations: {processedCount}\n";
                 
                 if (isMultiSelectionMode)
                 {
                     if (isCtrlHeld)
                     {
-                        debugInfo += "Multi Mode: Removing from selection\n";
                         RemoveVerticesFromSelections(selectedVertices);
                     }
                     else
@@ -1192,12 +1050,10 @@ namespace VRChatAvatarTools
                         
                         if (overlappingSelectionIndex >= 0)
                         {
-                            debugInfo += $"Multi Mode: Removing overlapping selection {overlappingSelectionIndex}\n";
                             RemoveSelection(overlappingSelectionIndex);
                         }
                         else
                         {
-                            debugInfo += "Multi Mode: Adding to selection\n";
                             var newSelection = new MeshSelection
                             {
                                 vertices = new HashSet<int>(selectedVertices),
@@ -1211,7 +1067,6 @@ namespace VRChatAvatarTools
                 }
                 else
                 {
-                    debugInfo += "Normal Mode: Replacing selection\n";
                     meshSelections.Clear();
                     
                     var newSelection = new MeshSelection
@@ -1224,7 +1079,6 @@ namespace VRChatAvatarTools
                     activeSelectionIndex = meshSelections.Count - 1;
                 }
                 
-                debugInfo += $"Total selections: {meshSelections.Count}\n";
                 
                 if (showPreview)
                 {
@@ -1329,12 +1183,10 @@ namespace VRChatAvatarTools
                 if (materials.Length == 1)
                 {
                     targetMeshRenderer.sharedMaterial = materials[0];
-                    debugInfo += $"[Apply] Applied new single material: {newMaterial.name}\n";
                 }
                 else
                 {
                     targetMeshRenderer.sharedMaterials = materials;
-                    debugInfo += $"[Apply] Applied new material to slot {selectedMaterialIndex}: {newMaterial.name}\n";
                 }
                 
                 // Update working materials and original materials with the new applied material
@@ -1355,14 +1207,7 @@ namespace VRChatAvatarTools
             
             // Update the original material reference to the new material
             originalMaterial = newMaterial;
-            
-            debugInfo += $"[Apply] Updated originalMaterials array with new applied material\n";
-            debugInfo += $"[Apply] Updated originalMaterials contents:\n";
-            for (int i = 0; i < originalMaterials.Length; i++)
-            {
-                debugInfo += $"[Apply]   originalMaterials[{i}]: {(originalMaterials[i] != null ? originalMaterials[i].name : "null")}\n";
-            }
-            
+
             // Recreate safety component with the new material as the "original"
             SetupSafetyComponent();
             
@@ -1372,10 +1217,6 @@ namespace VRChatAvatarTools
             isSelectionMode = false;
             Tools.current = Tool.Move;
             
-            debugInfo += $"\nTexture saved: {newTexturePath}\n";
-            debugInfo += $"Material saved: {newMaterialPath}\n";
-            debugInfo += $"Material applied and Safety component updated\n";
-            debugInfo += $"Selection mode turned OFF\n";
             
             // Repaint to update UI
             SceneView.RepaintAll();
@@ -1668,14 +1509,14 @@ namespace VRChatAvatarTools
                 lowerName.Contains("髪"))
             {
                 // 顔が見えるように少し上から斜め前方
-                return new Vector3(0.7f, 0.5f, -1.8f);
+                return new Vector3(0.7f, 0.5f, 1.8f);
             }
             // 体・ボディメッシュ
             else if (lowerName.Contains("body") || lowerName.Contains("身体") || 
                      lowerName.Contains("胴") || isTall)
             {
                 // 全身が見えるように斜め前方から
-                return new Vector3(1.2f, 0.8f, -2.0f);
+                return new Vector3(1.2f, 0.8f, 2.0f);
             }
             // 服・衣装メッシュ
             else if (lowerName.Contains("cloth") || lowerName.Contains("wear") || 
@@ -1683,34 +1524,34 @@ namespace VRChatAvatarTools
                      lowerName.Contains("服") || lowerName.Contains("衣装"))
             {
                 // 服のデザインが見えるように正面寄り
-                return new Vector3(0.5f, 0.3f, -2.2f);
+                return new Vector3(0.5f, 0.3f, 2.2f);
             }
             // アクセサリー・小物
             else if (lowerName.Contains("accessory") || lowerName.Contains("jewel") ||
                      lowerName.Contains("ring") || lowerName.Contains("アクセ"))
             {
                 // 詳細が見えるように近めで斜め
-                return new Vector3(0.8f, 0.8f, -1.5f);
+                return new Vector3(0.8f, 0.8f, 1.5f);
             }
             // 靴・足元
             else if (lowerName.Contains("shoe") || lowerName.Contains("boot") ||
                      lowerName.Contains("foot") || lowerName.Contains("靴"))
             {
                 // 横から少し上
-                return new Vector3(1.5f, 0.3f, -1.5f);
+                return new Vector3(1.5f, 0.3f, 1.5f);
             }
             // 手・腕
             else if (lowerName.Contains("hand") || lowerName.Contains("arm") ||
                      lowerName.Contains("手") || lowerName.Contains("腕"))
             {
                 // 手の形が見えるように
-                return new Vector3(1.0f, 0.5f, -1.8f);
+                return new Vector3(1.0f, 0.5f, 1.8f);
             }
             // デフォルト（3/4ビュー）
             else
             {
                 // 汎用的な斜め前方からの角度
-                return new Vector3(1.0f, 0.6f, -1.8f);
+                return new Vector3(1.0f, 0.6f, 1.8f);
             }
         }
         
@@ -1836,26 +1677,20 @@ namespace VRChatAvatarTools
             
             if (IsTextureReadable(originalTexture))
             {
-                debugInfo += "Using original texture (readable)\n";
                 workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
                 workingTexture.SetPixels(originalTexture.GetPixels());
                 workingTexture.Apply();
             }
             else
             {
-                debugInfo += "Creating readable copy of texture\n";
                 workingTexture = GetReadableTexture(originalTexture);
             }
             
             Vector2[] uvs = targetMesh.uv;
             
-            var stopwatch4 = System.Diagnostics.Stopwatch.StartNew();
             
             // Get entire texture pixels once using Color32 for better Job performance
-            var getTextureStart = System.Diagnostics.Stopwatch.StartNew();
             Color32[] allPixels = workingTexture.GetPixels32();
-            getTextureStart.Stop();
-            Debug.Log($"[PERF] GetPixels32 entire texture: {getTextureStart.ElapsedMilliseconds}ms");
             
             // Collect all triangles that need to be painted
             List<Vector2> allTriangleUVs = new List<Vector2>();
@@ -1880,11 +1715,9 @@ namespace VRChatAvatarTools
             if (allTriangleUVs.Count > 0)
             {
                 // Create NativeArrays for Job System
-                var jobSetupStart = System.Diagnostics.Stopwatch.StartNew();
                 NativeArray<Color32> pixelArray = new NativeArray<Color32>(allPixels, Allocator.TempJob);
                 NativeArray<Vector2> triangleUVArray = new NativeArray<Vector2>(allTriangleUVs.ToArray(), Allocator.TempJob);
-                jobSetupStart.Stop();
-                Debug.Log($"[PERF] Job setup: {jobSetupStart.ElapsedMilliseconds}ms");
+
                 
                 // Convert blend mode enum to int
                 int blendModeInt = 0;
@@ -1898,7 +1731,6 @@ namespace VRChatAvatarTools
                 }
                 
                 // Create and schedule the job
-                var jobExecuteStart = System.Diagnostics.Stopwatch.StartNew();
                 TrianglePaintJob paintJob = new TrianglePaintJob
                 {
                     pixels = pixelArray,
@@ -1913,14 +1745,9 @@ namespace VRChatAvatarTools
                 int triangleCount = allTriangleUVs.Count / 3;
                 JobHandle jobHandle = paintJob.Schedule(); // Single job processes all triangles
                 jobHandle.Complete();
-                jobExecuteStart.Stop();
-                Debug.Log($"[PERF] Job execution: {jobExecuteStart.ElapsedMilliseconds}ms for {triangleCount} triangles");
                 
                 // Copy results back
-                var copyBackStart = System.Diagnostics.Stopwatch.StartNew();
                 pixelArray.CopyTo(allPixels);
-                copyBackStart.Stop();
-                Debug.Log($"[PERF] Copy back from job: {copyBackStart.ElapsedMilliseconds}ms");
                 
                 // Clean up
                 pixelArray.Dispose();
@@ -1928,18 +1755,9 @@ namespace VRChatAvatarTools
             }
             
             // Set entire texture pixels once
-            var setTextureStart = System.Diagnostics.Stopwatch.StartNew();
             workingTexture.SetPixels32(allPixels);
-            setTextureStart.Stop();
-            Debug.Log($"[PERF] SetPixels32 entire texture: {setTextureStart.ElapsedMilliseconds}ms");
             
-            stopwatch4.Stop();
-            Debug.Log($"[PERF] All texture painting (Job System): {stopwatch4.ElapsedMilliseconds}ms");
-            
-            var applyStopwatch = System.Diagnostics.Stopwatch.StartNew();
             workingTexture.Apply();
-            applyStopwatch.Stop();
-            Debug.Log($"[PERF] Texture.Apply(): {applyStopwatch.ElapsedMilliseconds}ms");
             
             return workingTexture;
         }
@@ -1947,7 +1765,6 @@ namespace VRChatAvatarTools
         private void PaintTriangleOnTextureWithColor(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, 
             HashSet<Vector2Int> paintedPixels, Color color, float strength)
         {
-            var paintStopwatch = System.Diagnostics.Stopwatch.StartNew();
             
             int x0 = Mathf.RoundToInt(uv0.x * (texture.width - 1));
             int y0 = Mathf.RoundToInt(uv0.y * (texture.height - 1));
@@ -1966,9 +1783,7 @@ namespace VRChatAvatarTools
             int width = maxX - minX + 1;
             int height = maxY - minY + 1;
             
-            var getPixelsStart = System.Diagnostics.Stopwatch.StartNew();
             Color[] regionPixels = texture.GetPixels(minX, minY, width, height);
-            getPixelsStart.Stop();
             
             for (int x = minX; x <= maxX; x++)
             {
@@ -2005,17 +1820,8 @@ namespace VRChatAvatarTools
                 }
             }
             
-            var setPixelsStart = System.Diagnostics.Stopwatch.StartNew();
             // Set all modified pixels back to texture in one batch
             texture.SetPixels(minX, minY, width, height, regionPixels);
-            setPixelsStart.Stop();
-            
-            paintStopwatch.Stop();
-            
-            if (width * height > 500 || setPixelsStart.ElapsedMilliseconds > 1)
-            {
-                Debug.Log($"[PERF] Triangle paint detail - GetPixels: {getPixelsStart.ElapsedMilliseconds}ms, SetPixels: {setPixelsStart.ElapsedMilliseconds}ms, Total: {paintStopwatch.ElapsedMilliseconds}ms, Region: {width}x{height}");
-            }
         }
         
         private void PaintTriangleOnPixelArray(Color[] pixels, int textureWidth, int textureHeight,
@@ -2315,7 +2121,6 @@ namespace VRChatAvatarTools
                 importer.SaveAndReimport();
             }
             
-            debugInfo += $"\nMask texture saved: {maskTexturePath}\n";
             
             EditorUtility.DisplayDialog(GetLocalizedText("maskExportComplete"), 
                 string.Format(GetLocalizedText("maskExportMsg"), maskTexturePath), 
@@ -2356,7 +2161,6 @@ namespace VRChatAvatarTools
                 importer.SaveAndReimport();
             }
             
-            debugInfo += $"\nTexture exported: {texturePath}\n";
             
             EditorUtility.DisplayDialog(GetLocalizedText("textureExportComplete"), 
                 string.Format(GetLocalizedText("textureExportMsg"), texturePath), 
@@ -2369,7 +2173,6 @@ namespace VRChatAvatarTools
             
             if (IsTextureReadable(originalTexture))
             {
-                debugInfo += "Creating mask texture based on original dimensions\n";
                 workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
                 
                 Color[] blackPixels = new Color[originalTexture.width * originalTexture.height];
@@ -2381,7 +2184,6 @@ namespace VRChatAvatarTools
             }
             else
             {
-                debugInfo += "Creating mask texture using readable copy\n";
                 Texture2D readableOriginal = GetReadableTexture(originalTexture);
                 workingTexture = new Texture2D(readableOriginal.width, readableOriginal.height, TextureFormat.ARGB32, false);
                 
@@ -2470,10 +2272,8 @@ namespace VRChatAvatarTools
         {
             if (originalMaterials != null && targetMeshRenderer != null)
             {
-                debugInfo += "[Reset] Resetting to original materials:\n";
                 for (int i = 0; i < originalMaterials.Length; i++)
                 {
-                    debugInfo += $"  [{i}] {(originalMaterials[i] != null ? originalMaterials[i].name : "null")}\n";
                 }
                 
                 if (originalMaterials.Length == 1)
@@ -2507,7 +2307,6 @@ namespace VRChatAvatarTools
                 }
                 
                 RemovePreview();
-                debugInfo += "[Reset] Reset to original materials complete\n";
             }
         }
         
@@ -2518,13 +2317,11 @@ namespace VRChatAvatarTools
             
             RemoveTempCollider();
             
-            debugInfo += "\n=== SETUP TEMP COLLIDER ===\n";
             
             GameObject tempObject = new GameObject("TempMeshCollider");
             tempObject.transform.SetParent(targetMeshRenderer.transform, false);
             tempObject.layer = targetMeshRenderer.gameObject.layer;
             
-            debugInfo += $"Created temp object: {tempObject.name}\n";
             
             tempCollider = tempObject.AddComponent<MeshCollider>();
             
@@ -2532,12 +2329,9 @@ namespace VRChatAvatarTools
             targetMeshRenderer.BakeMesh(bakedMesh);
             tempCollider.sharedMesh = bakedMesh;
             
-            debugInfo += $"Baked mesh vertices: {bakedMesh.vertexCount}\n";
-            debugInfo += $"Collider enabled: {tempCollider.enabled}\n";
             
             tempObject.hideFlags = HideFlags.HideAndDontSave;
             
-            debugInfo += "Temporary collider created for raycasting\n";
             
             EditorApplication.delayCall += () => {
                 if (this != null) Repaint();
@@ -2598,7 +2392,6 @@ namespace VRChatAvatarTools
                 targetMeshRenderer.sharedMaterial = previewMaterial;
             }
             
-            debugInfo += "Preview updated\n";
         }
         
         private void RemovePreview()
@@ -2618,7 +2411,6 @@ namespace VRChatAvatarTools
                     {
                         targetMeshRenderer.sharedMaterials = materials;
                     }
-                    debugInfo += $"[RemovePreview] Restored working material at index {selectedMaterialIndex}\n";
                 }
             }
             
@@ -2720,7 +2512,6 @@ namespace VRChatAvatarTools
                 
                 if (overlapWithExisting >= overlapThreshold || overlapWithCurrent >= overlapThreshold)
                 {
-                    debugInfo += $"Found overlapping selection {i}: existing={overlapWithExisting:F2}, current={overlapWithCurrent:F2}\n";
                     return i;
                 }
             }
@@ -2730,7 +2521,6 @@ namespace VRChatAvatarTools
         
         private void RemoveVerticesFromSelections(HashSet<int> verticesToRemove)
         {
-            debugInfo += $"Removing {verticesToRemove.Count} vertices from selections\n";
             
             for (int i = meshSelections.Count - 1; i >= 0; i--)
             {
@@ -2793,60 +2583,45 @@ namespace VRChatAvatarTools
                 RemovePreview();
             }
             
-            debugInfo += $"Remaining selections: {meshSelections.Count}\n";
         }
         
         private void SetupSafetyComponent()
         {
-            debugInfo += $"[Safety] SetupSafetyComponent called\n";
-            debugInfo += $"[Safety] targetMeshRenderer: {(targetMeshRenderer != null ? targetMeshRenderer.name : "null")}\n";
-            debugInfo += $"[Safety] originalMaterials: {(originalMaterials != null ? originalMaterials.Length.ToString() : "null")}\n";
-            debugInfo += $"[Safety] windowGUID: {windowGUID}\n";
             
             if (targetMeshRenderer != null && originalMaterials != null && originalMaterials.Length > 0)
             {
-                debugInfo += $"[Safety] Creating safety with {originalMaterials.Length} materials:\n";
                 for (int i = 0; i < originalMaterials.Length; i++)
                 {
-                    debugInfo += $"[Safety]   Material[{i}]: {(originalMaterials[i] != null ? originalMaterials[i].name : "null")}\n";
                 }
                 
                 currentSafety = MeshColorMaterialSafety.CreateSafety(targetMeshRenderer, originalMaterials, windowGUID);
                 if (currentSafety != null)
                 {
-                    debugInfo += $"[Safety] Material safety component created successfully on {targetMeshRenderer.gameObject.name}\n";
                     
                     var components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
-                    debugInfo += $"[Safety] Found {components.Length} MeshColorMaterialSafety components on GameObject\n";
                 }
                 else
                 {
-                    debugInfo += "[Safety] Failed to create safety component (returned null)\n";
                 }
             }
             else
             {
-                debugInfo += "[Safety] Cannot create safety component - missing renderer or materials\n";
             }
         }
         
         private void RemoveSafetyComponent()
         {
-            debugInfo += "[Safety] RemoveSafetyComponent called\n";
             
             if (targetMeshRenderer != null)
             {
                 var components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
-                debugInfo += $"[Safety] Found {components.Length} safety components before removal\n";
                 
                 MeshColorMaterialSafety.RemoveSafety(targetMeshRenderer);
                 
                 components = targetMeshRenderer.gameObject.GetComponents<MeshColorMaterialSafety>();
-                debugInfo += $"[Safety] Found {components.Length} safety components after removal\n";
             }
             
             currentSafety = null;
-            debugInfo += "[Safety] Material safety component removed\n";
         }
         
         
@@ -2939,10 +2714,6 @@ namespace VRChatAvatarTools
                     case "materialSafetyHint": return "💡 オリジナルのマテリアルは上書きされません。複製されたファイルは kokoa/GeneratedMaterials と kokoa/GeneratedTextures に保存されます。";
                     
                     
-                    // Debug
-                    case "debugInformation": return "デバッグ情報";
-                    case "clearDebug": return "デバッグをクリア";
-                    
                     // Dialog messages
                     case "noSkinnedMeshRenderer": return "SkinnedMeshRendererなし";
                     case "noSkinnedMeshRendererMsg": return "選択されたアバターにはSkinnedMeshRendererコンポーネントがありません。";
@@ -3028,10 +2799,6 @@ namespace VRChatAvatarTools
                     case "resetToOriginal": return "Reset to Original";
                     case "materialSafetyHint": return "💡 Original materials are not overwritten. Duplicated files are saved to kokoa/GeneratedMaterials and kokoa/GeneratedTextures.";
                     
-                    
-                    // Debug
-                    case "debugInformation": return "Debug Information";
-                    case "clearDebug": return "Clear Debug";
                     
                     // Dialog messages
                     case "noSkinnedMeshRenderer": return "No SkinnedMeshRenderer";
