@@ -571,6 +571,14 @@ namespace VRChatAvatarTools
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField(GetLocalizedText("meshSelection"), EditorStyles.boldLabel);
             
+            // Check if material selection is required for multiple materials
+            if (availableMaterials != null && availableMaterials.Length > 1 && selectedMaterialIndex < 0)
+            {
+                EditorGUILayout.HelpBox(GetLocalizedText("selectMaterialFirst"), MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+            
             // Selection mode button
             GUI.backgroundColor = isSelectionMode ? new Color(0.3f, 1f, 0.3f) : Color.white;
             if (GUILayout.Button(isSelectionMode ? GetLocalizedText("selectionModeOn") : GetLocalizedText("selectionModeOff"), GUILayout.Height(30)))
@@ -642,7 +650,9 @@ namespace VRChatAvatarTools
             }
             else
             {
-                selectionScrollPos = EditorGUILayout.BeginScrollView(selectionScrollPos, GUILayout.Height(150));
+                // Adjust height based on multi-selection mode
+                float scrollHeight = isMultiSelectionMode ? 150 : 30;
+                selectionScrollPos = EditorGUILayout.BeginScrollView(selectionScrollPos, GUILayout.Height(scrollHeight));
                 
                 for (int i = 0; i < meshSelections.Count; i++)
                 {
@@ -2692,6 +2702,7 @@ namespace VRChatAvatarTools
                     case "material": return "マテリアル: ";
                     case "selectMaterial": return "マテリアルを選択:";
                     case "selectMaterialPrompt": return "マテリアルを選択してください";
+                    case "selectMaterialFirst": return "複数のマテリアルがあります。先にマテリアルを選択してください。";
                     case "textureReadable": return "テクスチャ読み取り可能: ";
                     case "yes": return "はい";
                     case "no": return "いいえ (コピーします)";
@@ -2780,6 +2791,7 @@ namespace VRChatAvatarTools
                     case "material": return "Material: ";
                     case "selectMaterial": return "Select Material:";
                     case "selectMaterialPrompt": return "Please select a material";
+                    case "selectMaterialFirst": return "Multiple materials detected. Please select a material first.";
                     case "textureReadable": return "Texture Readable: ";
                     case "yes": return "Yes";
                     case "no": return "No (will copy)";
