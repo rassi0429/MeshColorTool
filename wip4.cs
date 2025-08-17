@@ -3,6 +3,9 @@ using UnityEditor;
 using System.Collections.Generic;
 using System.Linq;
 using System;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Mathematics;
 
 namespace VRChatAvatarTools
 {
@@ -1449,48 +1452,93 @@ namespace VRChatAvatarTools
             
             var stopwatch4 = System.Diagnostics.Stopwatch.StartNew();
             
-            // Get entire texture pixels once
+            // Get entire texture pixels once using Color32 for better Job performance
             var getTextureStart = System.Diagnostics.Stopwatch.StartNew();
-            Color[] allPixels = workingTexture.GetPixels();
+            Color32[] allPixels = workingTexture.GetPixels32();
             getTextureStart.Stop();
-            Debug.Log($"[PERF] GetPixels entire texture: {getTextureStart.ElapsedMilliseconds}ms");
+            Debug.Log($"[PERF] GetPixels32 entire texture: {getTextureStart.ElapsedMilliseconds}ms");
             
-            HashSet<Vector2Int> globalPaintedPixels = new HashSet<Vector2Int>();
+            // Collect all triangles that need to be painted
+            List<Vector2> allTriangleUVs = new List<Vector2>();
+            int[] triangles = targetMesh.triangles;
             
             foreach (var selection in meshSelections)
             {
                 if (!selection.isEnabled) continue;
                 
-                Debug.Log($"[PERF] Processing selection with {selection.triangles.Count} triangles");
-                var selectionStopwatch = System.Diagnostics.Stopwatch.StartNew();
-                
                 foreach (int triangleIndex in selection.triangles)
                 {
                     int baseIndex = triangleIndex * 3;
-                    int[] triangles = targetMesh.triangles;
-                    
                     if (baseIndex + 2 < triangles.Length)
                     {
-                        Vector2 uv0 = uvs[triangles[baseIndex]];
-                        Vector2 uv1 = uvs[triangles[baseIndex + 1]];
-                        Vector2 uv2 = uvs[triangles[baseIndex + 2]];
-                        
-                        PaintTriangleOnPixelArray(allPixels, workingTexture.width, workingTexture.height, 
-                                                uv0, uv1, uv2, globalPaintedPixels, blendColor, blendStrength);
+                        allTriangleUVs.Add(uvs[triangles[baseIndex]]);
+                        allTriangleUVs.Add(uvs[triangles[baseIndex + 1]]);
+                        allTriangleUVs.Add(uvs[triangles[baseIndex + 2]]);
                     }
                 }
-                selectionStopwatch.Stop();
-                Debug.Log($"[PERF] Selection complete: {selectionStopwatch.ElapsedMilliseconds}ms for {selection.triangles.Count} triangles");
+            }
+            
+            if (allTriangleUVs.Count > 0)
+            {
+                // Create NativeArrays for Job System
+                var jobSetupStart = System.Diagnostics.Stopwatch.StartNew();
+                NativeArray<Color32> pixelArray = new NativeArray<Color32>(allPixels, Allocator.TempJob);
+                NativeArray<Vector2> triangleUVArray = new NativeArray<Vector2>(allTriangleUVs.ToArray(), Allocator.TempJob);
+                NativeArray<Vector2Int> dummyPaintedPixels = new NativeArray<Vector2Int>(0, Allocator.TempJob);
+                jobSetupStart.Stop();
+                Debug.Log($"[PERF] Job setup: {jobSetupStart.ElapsedMilliseconds}ms");
+                
+                // Convert blend mode enum to int
+                int blendModeInt = 0;
+                switch (currentBlendMode)
+                {
+                    case BlendMode.Multiply: blendModeInt = 1; break;
+                    case BlendMode.Additive: blendModeInt = 2; break;
+                    case BlendMode.Overlay: blendModeInt = 3; break;
+                    case BlendMode.Color: 
+                    default: blendModeInt = 0; break;
+                }
+                
+                // Create and schedule the job
+                var jobExecuteStart = System.Diagnostics.Stopwatch.StartNew();
+                TrianglePaintJob paintJob = new TrianglePaintJob
+                {
+                    pixels = pixelArray,
+                    triangleUVs = triangleUVArray,
+                    paintedPixelsList = dummyPaintedPixels,
+                    textureWidth = workingTexture.width,
+                    textureHeight = workingTexture.height,
+                    paintColor = new Color32((byte)(blendColor.r * 255), (byte)(blendColor.g * 255), (byte)(blendColor.b * 255), 255),
+                    strength = blendStrength,
+                    blendMode = blendModeInt
+                };
+                
+                int triangleCount = allTriangleUVs.Count / 3;
+                JobHandle jobHandle = paintJob.Schedule(); // Single job processes all triangles
+                jobHandle.Complete();
+                jobExecuteStart.Stop();
+                Debug.Log($"[PERF] Job execution: {jobExecuteStart.ElapsedMilliseconds}ms for {triangleCount} triangles");
+                
+                // Copy results back
+                var copyBackStart = System.Diagnostics.Stopwatch.StartNew();
+                pixelArray.CopyTo(allPixels);
+                copyBackStart.Stop();
+                Debug.Log($"[PERF] Copy back from job: {copyBackStart.ElapsedMilliseconds}ms");
+                
+                // Clean up
+                pixelArray.Dispose();
+                triangleUVArray.Dispose();
+                dummyPaintedPixels.Dispose();
             }
             
             // Set entire texture pixels once
             var setTextureStart = System.Diagnostics.Stopwatch.StartNew();
-            workingTexture.SetPixels(allPixels);
+            workingTexture.SetPixels32(allPixels);
             setTextureStart.Stop();
-            Debug.Log($"[PERF] SetPixels entire texture: {setTextureStart.ElapsedMilliseconds}ms");
+            Debug.Log($"[PERF] SetPixels32 entire texture: {setTextureStart.ElapsedMilliseconds}ms");
             
             stopwatch4.Stop();
-            Debug.Log($"[PERF] All texture painting: {stopwatch4.ElapsedMilliseconds}ms");
+            Debug.Log($"[PERF] All texture painting (Job System): {stopwatch4.ElapsedMilliseconds}ms");
             
             var applyStopwatch = System.Diagnostics.Stopwatch.StartNew();
             workingTexture.Apply();
@@ -2520,6 +2568,220 @@ namespace VRChatAvatarTools
                     default: return key;
                 }
             }
+        }
+    }
+
+    public struct TrianglePaintJob : IJob
+    {
+        public NativeArray<Color32> pixels;
+        [ReadOnly] public NativeArray<Vector2> triangleUVs;
+        [ReadOnly] public NativeArray<Vector2Int> paintedPixelsList;
+        [ReadOnly] public int textureWidth;
+        [ReadOnly] public int textureHeight;
+        [ReadOnly] public Color32 paintColor;
+        [ReadOnly] public float strength;
+        [ReadOnly] public int blendMode;
+        
+        public void Execute()
+        {
+            int triangleCount = triangleUVs.Length / 3;
+            
+            for (int triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++)
+            {
+                int baseIndex = triangleIndex * 3;
+                if (baseIndex + 2 >= triangleUVs.Length) continue;
+                
+                Vector2 uv0 = triangleUVs[baseIndex];
+                Vector2 uv1 = triangleUVs[baseIndex + 1];
+                Vector2 uv2 = triangleUVs[baseIndex + 2];
+                
+                // Skip invalid UVs
+                if (uv0.x < 0 || uv0.x > 1 || uv0.y < 0 || uv0.y > 1 ||
+                    uv1.x < 0 || uv1.x > 1 || uv1.y < 0 || uv1.y > 1 ||
+                    uv2.x < 0 || uv2.x > 1 || uv2.y < 0 || uv2.y > 1) continue;
+                
+                int x0 = (int)(uv0.x * (textureWidth - 1));
+                int y0 = (int)(uv0.y * (textureHeight - 1));
+                int x1 = (int)(uv1.x * (textureWidth - 1));
+                int y1 = (int)(uv1.y * (textureHeight - 1));
+                int x2 = (int)(uv2.x * (textureWidth - 1));
+                int y2 = (int)(uv2.y * (textureHeight - 1));
+                
+                // Calculate tight bounds
+                int minX = math.max(0, math.min(x0, math.min(x1, x2)));
+                int maxX = math.min(textureWidth - 1, math.max(x0, math.max(x1, x2)));
+                int minY = math.max(0, math.min(y0, math.min(y1, y2)));
+                int maxY = math.min(textureHeight - 1, math.max(y0, math.max(y1, y2)));
+                
+                // Skip degenerate triangles
+                if (maxX <= minX || maxY <= minY) continue;
+                
+                // Calculate triangle area for early culling (more generous limit)
+                int area = (maxX - minX) * (maxY - minY);
+                if (area > 50000) continue; // Skip extremely large triangles only
+                
+                for (int y = minY; y <= maxY; y++)
+                {
+                    bool foundPixelInRow = false;
+                    for (int x = minX; x <= maxX; x++)
+                    {
+                        if (IsPointInTriangleFast(x, y, x0, y0, x1, y1, x2, y2))
+                        {
+                            foundPixelInRow = true;
+                            int pixelIndex = y * textureWidth + x;
+                            
+                            if (pixelIndex >= 0 && pixelIndex < pixels.Length)
+                            {
+                                Color32 originalColor = pixels[pixelIndex];
+                                Color32 blendedColor = ApplyBlendModeFast(originalColor, paintColor, blendMode, strength);
+                                pixels[pixelIndex] = blendedColor;
+                            }
+                        }
+                        else if (foundPixelInRow)
+                        {
+                            // Early exit: we've passed through the triangle in this row
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        private bool IsPointInTriangleFast(int px, int py, int x0, int y0, int x1, int y1, int x2, int y2)
+        {
+            // Integer-based barycentric coordinates for speed
+            int denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+            if (denom == 0) return false;
+            
+            int a = (y1 - y2) * (px - x2) + (x2 - x1) * (py - y2);
+            int b = (y2 - y0) * (px - x2) + (x0 - x2) * (py - y2);
+            
+            if (denom > 0)
+            {
+                return a >= 0 && b >= 0 && (a + b) <= denom;
+            }
+            else
+            {
+                return a <= 0 && b <= 0 && (a + b) >= denom;
+            }
+        }
+        
+        private Color32 ApplyBlendModeFast(Color32 original, Color32 paint, int blendMode, float strength)
+        {
+            // Simplified but correct color blending
+            if (strength <= 0) return original;
+            
+            Color originalColor = new Color(original.r / 255f, original.g / 255f, original.b / 255f, original.a / 255f);
+            Color paintColor = new Color(paint.r / 255f, paint.g / 255f, paint.b / 255f, paint.a / 255f);
+            Color result;
+            
+            switch (blendMode)
+            {
+                case 1: // Multiply
+                    result = originalColor * paintColor;
+                    break;
+                case 2: // Additive
+                    result = originalColor + paintColor;
+                    break;
+                case 3: // Overlay
+                    result = new Color(
+                        originalColor.r < 0.5f ? 2f * originalColor.r * paintColor.r : 1f - 2f * (1f - originalColor.r) * (1f - paintColor.r),
+                        originalColor.g < 0.5f ? 2f * originalColor.g * paintColor.g : 1f - 2f * (1f - originalColor.g) * (1f - paintColor.g),
+                        originalColor.b < 0.5f ? 2f * originalColor.b * paintColor.b : 1f - 2f * (1f - originalColor.b) * (1f - paintColor.b),
+                        originalColor.a
+                    );
+                    break;
+                default: // Color
+                    result = paintColor;
+                    break;
+            }
+            
+            // Lerp for strength
+            result = Color.Lerp(originalColor, result, strength);
+            
+            return new Color32(
+                (byte)(math.clamp(result.r, 0f, 1f) * 255f),
+                (byte)(math.clamp(result.g, 0f, 1f) * 255f),
+                (byte)(math.clamp(result.b, 0f, 1f) * 255f),
+                255
+            );
+        }
+        
+        private bool IsPointInTriangle(float px, float py, float x0, float y0, float x1, float y1, float x2, float y2)
+        {
+            float denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+            if (Mathf.Abs(denom) < 1e-10f) return false;
+            
+            float a = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom;
+            float b = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom;
+            float c = 1 - a - b;
+            
+            return a >= 0 && b >= 0 && c >= 0;
+        }
+        
+        private float DistanceToTriangle(float px, float py, float x0, float y0, float x1, float y1, float x2, float y2)
+        {
+            float distToEdge1 = DistanceToLineSegment(px, py, x0, y0, x1, y1);
+            float distToEdge2 = DistanceToLineSegment(px, py, x1, y1, x2, y2);
+            float distToEdge3 = DistanceToLineSegment(px, py, x2, y2, x0, y0);
+            
+            return Mathf.Min(distToEdge1, Mathf.Min(distToEdge2, distToEdge3));
+        }
+        
+        private float DistanceToLineSegment(float px, float py, float x1, float y1, float x2, float y2)
+        {
+            float dx = x2 - x1;
+            float dy = y2 - y1;
+            float lengthSquared = dx * dx + dy * dy;
+            
+            if (lengthSquared < 1e-10f)
+            {
+                dx = px - x1;
+                dy = py - y1;
+                return Mathf.Sqrt(dx * dx + dy * dy);
+            }
+            
+            float t = Mathf.Clamp01(((px - x1) * dx + (py - y1) * dy) / lengthSquared);
+            float projX = x1 + t * dx;
+            float projY = y1 + t * dy;
+            
+            dx = px - projX;
+            dy = py - projY;
+            return Mathf.Sqrt(dx * dx + dy * dy);
+        }
+        
+        private Color32 ApplyBlendMode(Color32 original, Color32 paint, int blendMode, float strength)
+        {
+            // Simplified blend mode for Job System (avoiding enum)
+            // 0 = Color, 1 = Multiply, 2 = Additive, 3 = Overlay
+            Color originalColor = original;
+            Color paintColor = paint;
+            Color result;
+            
+            switch (blendMode)
+            {
+                case 1: // Multiply
+                    result = originalColor * paintColor;
+                    break;
+                case 2: // Additive
+                    result = originalColor + paintColor;
+                    break;
+                case 3: // Overlay
+                    // Simple overlay approximation
+                    result = new Color(
+                        originalColor.r < 0.5f ? 2f * originalColor.r * paintColor.r : 1f - 2f * (1f - originalColor.r) * (1f - paintColor.r),
+                        originalColor.g < 0.5f ? 2f * originalColor.g * paintColor.g : 1f - 2f * (1f - originalColor.g) * (1f - paintColor.g),
+                        originalColor.b < 0.5f ? 2f * originalColor.b * paintColor.b : 1f - 2f * (1f - originalColor.b) * (1f - paintColor.b),
+                        originalColor.a
+                    );
+                    break;
+                default: // Color
+                    result = paintColor;
+                    break;
+            }
+            
+            result = Color.Lerp(originalColor, result, strength);
+            return new Color32((byte)(result.r * 255), (byte)(result.g * 255), (byte)(result.b * 255), 255);
         }
     }
 }
