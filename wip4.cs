@@ -989,6 +989,7 @@ namespace VRChatAvatarTools
             debugInfo += $"Total vertices: {vertices.Length}\n";
             debugInfo += $"Camera position: {cameraPosition}\n";
             
+            var stopwatch1 = System.Diagnostics.Stopwatch.StartNew();
             List<VertexCandidate> candidates = new List<VertexCandidate>();
             float threshold = 0.001f;
             
@@ -1004,8 +1005,13 @@ namespace VRChatAvatarTools
                     distance = distance
                 });
             }
+            stopwatch1.Stop();
+            Debug.Log($"[PERF] Vertex candidates creation: {stopwatch1.ElapsedMilliseconds}ms for {vertices.Length} vertices");
             
+            var stopwatch2 = System.Diagnostics.Stopwatch.StartNew();
             candidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+            stopwatch2.Stop();
+            Debug.Log($"[PERF] Candidates sorting: {stopwatch2.ElapsedMilliseconds}ms for {candidates.Count} candidates");
             
             if (candidates.Count == 0) return;
             
@@ -1062,6 +1068,7 @@ namespace VRChatAvatarTools
                     debugInfo += $"Limiting to X-axis: clicked on {(selectPositiveSide ? "positive" : "negative")} side (X = {clickWorldPos.x:F3})\n";
                 }
                 
+                var stopwatch3 = System.Diagnostics.Stopwatch.StartNew();
                 HashSet<int> visited = new HashSet<int>();
                 Queue<int> queue = new Queue<int>();
                 
@@ -1074,6 +1081,7 @@ namespace VRChatAvatarTools
                 int processedCount = 0;
                 bool isFirstVertex = true;
                 
+                Debug.Log($"[PERF] BFS traversal starting with {triangles.Length / 3} triangles");
                 while (queue.Count > 0 && processedCount < 1000)
                 {
                     processedCount++;
@@ -1095,6 +1103,7 @@ namespace VRChatAvatarTools
                     
                     selectedVertices.Add(currentVertex);
                     
+                    var triangleLoopStart = System.Diagnostics.Stopwatch.StartNew();
                     for (int i = 0; i < triangles.Length; i += 3)
                     {
                         bool containsVertex = false;
@@ -1164,9 +1173,16 @@ namespace VRChatAvatarTools
                             }
                         }
                     }
+                    triangleLoopStart.Stop();
+                    if (processedCount % 10 == 0)
+                    {
+                        Debug.Log($"[PERF] Triangle loop iteration {processedCount}: {triangleLoopStart.ElapsedMilliseconds}ms");
+                    }
                     
                     isFirstVertex = false;
                 }
+                stopwatch3.Stop();
+                Debug.Log($"[PERF] BFS traversal complete: {stopwatch3.ElapsedMilliseconds}ms for {processedCount} iterations");
                 
                 debugInfo += $"Selected vertices: {selectedVertices.Count}\n";
                 debugInfo += $"Selected triangles: {selectedTriangles.Count}\n";
@@ -1431,11 +1447,22 @@ namespace VRChatAvatarTools
             
             Vector2[] uvs = targetMesh.uv;
             
+            var stopwatch4 = System.Diagnostics.Stopwatch.StartNew();
+            
+            // Get entire texture pixels once
+            var getTextureStart = System.Diagnostics.Stopwatch.StartNew();
+            Color[] allPixels = workingTexture.GetPixels();
+            getTextureStart.Stop();
+            Debug.Log($"[PERF] GetPixels entire texture: {getTextureStart.ElapsedMilliseconds}ms");
+            
+            HashSet<Vector2Int> globalPaintedPixels = new HashSet<Vector2Int>();
+            
             foreach (var selection in meshSelections)
             {
                 if (!selection.isEnabled) continue;
                 
-                HashSet<Vector2Int> paintedPixels = new HashSet<Vector2Int>();
+                Debug.Log($"[PERF] Processing selection with {selection.triangles.Count} triangles");
+                var selectionStopwatch = System.Diagnostics.Stopwatch.StartNew();
                 
                 foreach (int triangleIndex in selection.triangles)
                 {
@@ -1448,18 +1475,36 @@ namespace VRChatAvatarTools
                         Vector2 uv1 = uvs[triangles[baseIndex + 1]];
                         Vector2 uv2 = uvs[triangles[baseIndex + 2]];
                         
-                        PaintTriangleOnTextureWithColor(workingTexture, uv0, uv1, uv2, paintedPixels, blendColor, blendStrength);
+                        PaintTriangleOnPixelArray(allPixels, workingTexture.width, workingTexture.height, 
+                                                uv0, uv1, uv2, globalPaintedPixels, blendColor, blendStrength);
                     }
                 }
+                selectionStopwatch.Stop();
+                Debug.Log($"[PERF] Selection complete: {selectionStopwatch.ElapsedMilliseconds}ms for {selection.triangles.Count} triangles");
             }
             
+            // Set entire texture pixels once
+            var setTextureStart = System.Diagnostics.Stopwatch.StartNew();
+            workingTexture.SetPixels(allPixels);
+            setTextureStart.Stop();
+            Debug.Log($"[PERF] SetPixels entire texture: {setTextureStart.ElapsedMilliseconds}ms");
+            
+            stopwatch4.Stop();
+            Debug.Log($"[PERF] All texture painting: {stopwatch4.ElapsedMilliseconds}ms");
+            
+            var applyStopwatch = System.Diagnostics.Stopwatch.StartNew();
             workingTexture.Apply();
+            applyStopwatch.Stop();
+            Debug.Log($"[PERF] Texture.Apply(): {applyStopwatch.ElapsedMilliseconds}ms");
+            
             return workingTexture;
         }
         
         private void PaintTriangleOnTextureWithColor(Texture2D texture, Vector2 uv0, Vector2 uv1, Vector2 uv2, 
             HashSet<Vector2Int> paintedPixels, Color color, float strength)
         {
+            var paintStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            
             int x0 = Mathf.RoundToInt(uv0.x * (texture.width - 1));
             int y0 = Mathf.RoundToInt(uv0.y * (texture.height - 1));
             int x1 = Mathf.RoundToInt(uv1.x * (texture.width - 1));
@@ -1472,6 +1517,14 @@ namespace VRChatAvatarTools
             int maxX = Mathf.Min(texture.width - 1, Mathf.Max(x0, Mathf.Max(x1, x2)) + 2);
             int minY = Mathf.Max(0, Mathf.Min(y0, Mathf.Min(y1, y2)) - 2);
             int maxY = Mathf.Min(texture.height - 1, Mathf.Max(y0, Mathf.Max(y1, y2)) + 2);
+            
+            // Get pixels in batch for the region
+            int width = maxX - minX + 1;
+            int height = maxY - minY + 1;
+            
+            var getPixelsStart = System.Diagnostics.Stopwatch.StartNew();
+            Color[] regionPixels = texture.GetPixels(minX, minY, width, height);
+            getPixelsStart.Stop();
             
             for (int x = minX; x <= maxX; x++)
             {
@@ -1494,9 +1547,80 @@ namespace VRChatAvatarTools
                         if (isInTriangle || distanceToTriangle <= 2f)
                         {
                             paintedPixels.Add(pixelCoord);
-                            Color originalColor = texture.GetPixel(x, y);
+                            
+                            // Calculate array index for the region
+                            int localX = x - minX;
+                            int localY = y - minY;
+                            int pixelIndex = localY * width + localX;
+                            
+                            Color originalColor = regionPixels[pixelIndex];
                             Color blendedColor = ApplyBlendMode(originalColor, color, currentBlendMode, strength);
-                            texture.SetPixel(x, y, blendedColor);
+                            regionPixels[pixelIndex] = blendedColor;
+                        }
+                    }
+                }
+            }
+            
+            var setPixelsStart = System.Diagnostics.Stopwatch.StartNew();
+            // Set all modified pixels back to texture in one batch
+            texture.SetPixels(minX, minY, width, height, regionPixels);
+            setPixelsStart.Stop();
+            
+            paintStopwatch.Stop();
+            
+            if (width * height > 500 || setPixelsStart.ElapsedMilliseconds > 1)
+            {
+                Debug.Log($"[PERF] Triangle paint detail - GetPixels: {getPixelsStart.ElapsedMilliseconds}ms, SetPixels: {setPixelsStart.ElapsedMilliseconds}ms, Total: {paintStopwatch.ElapsedMilliseconds}ms, Region: {width}x{height}");
+            }
+        }
+        
+        private void PaintTriangleOnPixelArray(Color[] pixels, int textureWidth, int textureHeight,
+            Vector2 uv0, Vector2 uv1, Vector2 uv2, HashSet<Vector2Int> paintedPixels, Color color, float strength)
+        {
+            int x0 = Mathf.RoundToInt(uv0.x * (textureWidth - 1));
+            int y0 = Mathf.RoundToInt(uv0.y * (textureHeight - 1));
+            int x1 = Mathf.RoundToInt(uv1.x * (textureWidth - 1));
+            int y1 = Mathf.RoundToInt(uv1.y * (textureHeight - 1));
+            int x2 = Mathf.RoundToInt(uv2.x * (textureWidth - 1));
+            int y2 = Mathf.RoundToInt(uv2.y * (textureHeight - 1));
+            
+            // Expand bounds by 2 pixels for mipmap support
+            int minX = Mathf.Max(0, Mathf.Min(x0, Mathf.Min(x1, x2)) - 2);
+            int maxX = Mathf.Min(textureWidth - 1, Mathf.Max(x0, Mathf.Max(x1, x2)) + 2);
+            int minY = Mathf.Max(0, Mathf.Min(y0, Mathf.Min(y1, y2)) - 2);
+            int maxY = Mathf.Min(textureHeight - 1, Mathf.Max(y0, Mathf.Max(y1, y2)) + 2);
+            
+            for (int x = minX; x <= maxX; x++)
+            {
+                for (int y = minY; y <= maxY; y++)
+                {
+                    Vector2Int pixelCoord = new Vector2Int(x, y);
+                    
+                    if (!paintedPixels.Contains(pixelCoord))
+                    {
+                        bool isInTriangle = IsPointInTriangle(x, y, x0, y0, x1, y1, x2, y2);
+                        float distanceToTriangle = 0f;
+                        
+                        if (!isInTriangle)
+                        {
+                            // Calculate distance to triangle for pixels outside triangle
+                            distanceToTriangle = DistanceToTriangle(x, y, x0, y0, x1, y1, x2, y2);
+                        }
+                        
+                        // Paint if inside triangle or within 2 pixels of triangle
+                        if (isInTriangle || distanceToTriangle <= 2f)
+                        {
+                            paintedPixels.Add(pixelCoord);
+                            
+                            // Calculate array index for the pixel
+                            int pixelIndex = y * textureWidth + x;
+                            
+                            if (pixelIndex >= 0 && pixelIndex < pixels.Length)
+                            {
+                                Color originalColor = pixels[pixelIndex];
+                                Color blendedColor = ApplyBlendMode(originalColor, color, currentBlendMode, strength);
+                                pixels[pixelIndex] = blendedColor;
+                            }
                         }
                     }
                 }
