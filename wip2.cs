@@ -8,6 +8,10 @@ namespace VRChatAvatarTools
 {
     public class MeshColorEditorWindow : EditorWindow
     {
+        // Language settings
+        private enum Language { English, Japanese }
+        private Language currentLanguage = Language.English;
+        
         // Target mesh
         private GameObject targetAvatar;
         private SkinnedMeshRenderer targetMeshRenderer;
@@ -59,6 +63,7 @@ namespace VRChatAvatarTools
         private string debugInfo = "";
         private Vector3 lastRaycastPoint;
         private bool lastRaycastHit = false;
+        private bool showDebugInfo = false;
         
         [MenuItem("VRChat Avatar Tools/Mesh Color Editor")]
         public static void ShowWindow()
@@ -121,7 +126,25 @@ namespace VRChatAvatarTools
         {
             EditorGUILayout.Space();
             
-            EditorGUILayout.LabelField("VRChat Mesh Color Editor", EditorStyles.boldLabel);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(GetLocalizedText("title"), EditorStyles.boldLabel);
+            
+            GUILayout.FlexibleSpace();
+            
+            // Language tabs
+            GUI.backgroundColor = currentLanguage == Language.English ? Color.cyan : Color.white;
+            if (GUILayout.Button("EN", GUILayout.Width(30)))
+            {
+                currentLanguage = Language.English;
+            }
+            GUI.backgroundColor = currentLanguage == Language.Japanese ? Color.cyan : Color.white;
+            if (GUILayout.Button("JP", GUILayout.Width(30)))
+            {
+                currentLanguage = Language.Japanese;
+            }
+            GUI.backgroundColor = Color.white;
+            
+            EditorGUILayout.EndHorizontal();
             EditorGUILayout.Space();
             
             mainScrollPosition = EditorGUILayout.BeginScrollView(mainScrollPosition);
@@ -131,7 +154,7 @@ namespace VRChatAvatarTools
             if (targetMeshRenderer == null)
             {
                 EditorGUILayout.EndScrollView();
-                EditorGUILayout.HelpBox("Please select an avatar with SkinnedMeshRenderer", MessageType.Info);
+                EditorGUILayout.HelpBox(GetLocalizedText("noRenderer"), MessageType.Info);
                 return;
             }
             
@@ -165,15 +188,15 @@ namespace VRChatAvatarTools
         private void DrawTargetSelection()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Target Mesh", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(GetLocalizedText("targetMesh"), EditorStyles.boldLabel);
             
             EditorGUILayout.BeginHorizontal();
             EditorGUI.BeginChangeCheck();
-            targetAvatar = EditorGUILayout.ObjectField("Avatar", targetAvatar, typeof(GameObject), true) as GameObject;
+            targetAvatar = EditorGUILayout.ObjectField(GetLocalizedText("avatar"), targetAvatar, typeof(GameObject), true) as GameObject;
             
             if (targetAvatar != null)
             {
-                if (GUILayout.Button("Clear", GUILayout.Width(50)))
+                if (GUILayout.Button(GetLocalizedText("clear"), GUILayout.Width(50)))
                 {
                     ClearAvatarSelection();
                 }
@@ -201,8 +224,8 @@ namespace VRChatAvatarTools
                     targetMesh = null;
                     originalMaterial = null;
                     originalTexture = null;
-                    EditorUtility.DisplayDialog("No SkinnedMeshRenderer", 
-                        "The selected avatar doesn't have any SkinnedMeshRenderer components.", "OK");
+                    EditorUtility.DisplayDialog(GetLocalizedText("noSkinnedMeshRenderer"), 
+                        GetLocalizedText("noSkinnedMeshRendererMsg"), GetLocalizedText("ok"));
                 }
                 
                 ClearAllSelections();
@@ -211,7 +234,7 @@ namespace VRChatAvatarTools
             if (targetAvatar != null && availableRenderers != null && availableRenderers.Length > 0)
             {
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Select Mesh:", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(GetLocalizedText("selectMesh"), EditorStyles.boldLabel);
                 
                 string[] rendererNames = new string[availableRenderers.Length];
                 for (int i = 0; i < availableRenderers.Length; i++)
@@ -233,7 +256,7 @@ namespace VRChatAvatarTools
                 }
                 
                 EditorGUILayout.Space();
-                bool hideOthers = EditorGUILayout.Toggle("Hide Other Meshes", IsOtherMeshesHidden());
+                bool hideOthers = EditorGUILayout.Toggle(GetLocalizedText("hideOtherMeshes"), IsOtherMeshesHidden());
                 
                 if (hideOthers)
                 {
@@ -248,21 +271,22 @@ namespace VRChatAvatarTools
             if (targetMeshRenderer != null)
             {
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Mesh Info:", EditorStyles.boldLabel);
-                EditorGUILayout.LabelField("Mesh: " + targetMesh.name);
-                EditorGUILayout.LabelField("Vertices: " + targetMesh.vertexCount);
-                EditorGUILayout.LabelField("Material: " + (originalMaterial != null ? originalMaterial.name : "None"));
-                
+                EditorGUILayout.LabelField(GetLocalizedText("meshInfo"), EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(GetLocalizedText("mesh") + targetMesh.name);
+                EditorGUILayout.LabelField(GetLocalizedText("vertices") + targetMesh.vertexCount);
+                EditorGUILayout.LabelField(GetLocalizedText("material") + (originalMaterial != null ? originalMaterial.name : "None"));
+
                 if (originalTexture != null)
                 {
-                    bool isReadable = IsTextureReadable(originalTexture);
-                    EditorGUILayout.LabelField("Texture Readable: " + (isReadable ? "Yes" : "No (will copy)"), 
-                        isReadable ? EditorStyles.miniLabel : EditorStyles.miniBoldLabel);
+                    // 絶対コピーするので出さない
+                    // bool isReadable = IsTextureReadable(originalTexture);
+                    // EditorGUILayout.LabelField(GetLocalizedText("textureReadable") + (isReadable ? GetLocalizedText("yes") : GetLocalizedText("no")), 
+                    //     isReadable ? EditorStyles.miniLabel : EditorStyles.miniBoldLabel);
                 }
                 
                 if (tempCollider != null)
                 {
-                    EditorGUILayout.LabelField("Status: Collider Ready", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField(GetLocalizedText("statusColliderReady"), EditorStyles.miniLabel);
                 }
             }
             
@@ -358,10 +382,10 @@ namespace VRChatAvatarTools
         private void DrawSelectionMode()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Mesh Selection", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(GetLocalizedText("meshSelection"), EditorStyles.boldLabel);
             
             EditorGUI.BeginChangeCheck();
-            isSelectionMode = EditorGUILayout.Toggle("Selection Mode", isSelectionMode);
+            isSelectionMode = EditorGUILayout.Toggle(GetLocalizedText("selectionMode"), isSelectionMode);
             
             if (EditorGUI.EndChangeCheck())
             {
@@ -384,42 +408,42 @@ namespace VRChatAvatarTools
             if (isSelectionMode)
             {
                 EditorGUILayout.Space();
-                isMultiSelectionMode = EditorGUILayout.Toggle("Multi Selection Mode", isMultiSelectionMode);
+                isMultiSelectionMode = EditorGUILayout.Toggle(GetLocalizedText("multiSelectionMode"), isMultiSelectionMode);
                 
                 if (isMultiSelectionMode)
                 {
-                    EditorGUILayout.HelpBox("Click: Add to selection | Ctrl+Click: Remove from selection", MessageType.Info);
+                    EditorGUILayout.HelpBox(GetLocalizedText("clickAdd"), MessageType.Info);
                 }
                 else
                 {
-                    EditorGUILayout.HelpBox("Click: Select new area", MessageType.Info);
+                    EditorGUILayout.HelpBox(GetLocalizedText("clickNew"), MessageType.Info);
                 }
                 
                 // Selection Settings
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField("Selection Settings", EditorStyles.miniBoldLabel);
+                EditorGUILayout.LabelField(GetLocalizedText("selectionSettings"), EditorStyles.miniBoldLabel);
                 
-                limitToXAxis = EditorGUILayout.Toggle("Limit to X-Axis Side", limitToXAxis);
+                limitToXAxis = EditorGUILayout.Toggle(GetLocalizedText("limitToXAxis"), limitToXAxis);
                 
                 if (limitToXAxis)
                 {
                     EditorGUI.indentLevel++;
-                    xAxisThreshold = EditorGUILayout.FloatField("X-Axis Center", xAxisThreshold);
-                    EditorGUILayout.HelpBox($"Selection will not cross X = {xAxisThreshold}\nClick on either side to select that side only", MessageType.Info);
+                    xAxisThreshold = EditorGUILayout.FloatField(GetLocalizedText("xAxisCenter"), xAxisThreshold);
+                    EditorGUILayout.HelpBox(string.Format(GetLocalizedText("xAxisHelp"), xAxisThreshold), MessageType.Info);
                     EditorGUI.indentLevel--;
                 }
             }
             
-            EditorGUILayout.LabelField("Total Selected Vertices: " + GetTotalSelectedVertices());
+            EditorGUILayout.LabelField(GetLocalizedText("totalSelectedVertices") + GetTotalSelectedVertices());
             
-            if (GUILayout.Button("Clear All Selections"))
+            if (GUILayout.Button(GetLocalizedText("clearAllSelections")))
             {
                 ClearAllSelections();
             }
             
             if (targetMeshRenderer != null && tempCollider == null)
             {
-                if (GUILayout.Button("Setup Collider (Debug)"))
+                if (GUILayout.Button(GetLocalizedText("setupCollider")))
                 {
                     SetupTempCollider();
                 }
@@ -431,11 +455,11 @@ namespace VRChatAvatarTools
         private void DrawSelectionList()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Mesh Selections", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(GetLocalizedText("meshSelections"), EditorStyles.boldLabel);
             
             if (meshSelections.Count == 0)
             {
-                EditorGUILayout.LabelField("No areas selected", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField(GetLocalizedText("noAreasSelected"), EditorStyles.miniLabel);
             }
             else
             {
@@ -450,7 +474,7 @@ namespace VRChatAvatarTools
                     bool isActive = (i == activeSelectionIndex);
                     GUI.backgroundColor = isActive ? Color.cyan : Color.white;
                     
-                    if (GUILayout.Button($"Area {i + 1} ({selection.vertices.Count} verts)", 
+                    if (GUILayout.Button($"{GetLocalizedText("area")} {i + 1} ({selection.vertices.Count} {GetLocalizedText("verts")})", 
                         isActive ? EditorStyles.miniButtonMid : EditorStyles.miniButton))
                     {
                         SetActiveSelection(i);
@@ -480,12 +504,12 @@ namespace VRChatAvatarTools
         private void DrawColorSettings()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Color Settings", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(GetLocalizedText("colorSettings"), EditorStyles.boldLabel);
             
             EditorGUI.BeginChangeCheck();
-            blendColor = EditorGUILayout.ColorField("Blend Color", blendColor);
-            blendStrength = EditorGUILayout.Slider("Strength", blendStrength, 0f, 1f);
-            currentBlendMode = (BlendMode)EditorGUILayout.EnumPopup("Blend Mode", currentBlendMode);
+            blendColor = EditorGUILayout.ColorField(GetLocalizedText("blendColor"), blendColor);
+            blendStrength = EditorGUILayout.Slider(GetLocalizedText("strength"), blendStrength, 0f, 1f);
+            currentBlendMode = (BlendMode)EditorGUILayout.EnumPopup(GetLocalizedText("blendMode"), currentBlendMode);
             
             if (EditorGUI.EndChangeCheck())
             {
@@ -493,7 +517,7 @@ namespace VRChatAvatarTools
             }
             
             EditorGUI.BeginChangeCheck();
-            showPreview = EditorGUILayout.Toggle("Show Preview", showPreview);
+            showPreview = EditorGUILayout.Toggle(GetLocalizedText("showPreview"), showPreview);
             
             if (EditorGUI.EndChangeCheck())
             {
@@ -517,13 +541,13 @@ namespace VRChatAvatarTools
             switch (currentBlendMode)
             {
                 case BlendMode.Additive:
-                    return "Adds color values (brightens)";
+                    return GetLocalizedText("additiveDesc");
                 case BlendMode.Multiply:
-                    return "Multiplies color values (darkens)";
+                    return GetLocalizedText("multiplyDesc");
                 case BlendMode.Color:
-                    return "Applies hue and saturation while preserving luminance (Photoshop Color mode)";
+                    return GetLocalizedText("colorDesc");
                 case BlendMode.Overlay:
-                    return "Combines multiply and screen based on base color";
+                    return GetLocalizedText("overlayDesc");
                 default:
                     return "";
             }
@@ -532,23 +556,23 @@ namespace VRChatAvatarTools
         private void DrawActions()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Actions", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(GetLocalizedText("actions"), EditorStyles.boldLabel);
             
             GUI.enabled = meshSelections.Count > 0 && originalTexture != null;
             
-            if (GUILayout.Button("Apply Color", GUILayout.Height(30)))
+            if (GUILayout.Button(GetLocalizedText("applyColor"), GUILayout.Height(30)))
             {
                 ApplyColorToSelection();
             }
             
-            if (GUILayout.Button("Export Mask Texture", GUILayout.Height(30)))
+            if (GUILayout.Button(GetLocalizedText("exportMaskTexture"), GUILayout.Height(30)))
             {
                 ExportMaskTexture();
             }
             
             GUI.enabled = true;
             
-            if (GUILayout.Button("Reset to Original"))
+            if (GUILayout.Button(GetLocalizedText("resetToOriginal")))
             {
                 ResetToOriginal();
             }
@@ -559,11 +583,11 @@ namespace VRChatAvatarTools
         private void DrawHistory()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Edit History", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(GetLocalizedText("editHistory"), EditorStyles.boldLabel);
             
             if (editHistories.Count == 0)
             {
-                EditorGUILayout.LabelField("No edits yet");
+                EditorGUILayout.LabelField(GetLocalizedText("noEditsYet"));
             }
             else
             {
@@ -573,7 +597,7 @@ namespace VRChatAvatarTools
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField($"{i + 1}. {history.timestamp}");
                     
-                    if (GUILayout.Button("Revert", GUILayout.Width(60)))
+                    if (GUILayout.Button(GetLocalizedText("revert"), GUILayout.Width(60)))
                     {
                         RevertToHistory(history);
                     }
@@ -588,13 +612,21 @@ namespace VRChatAvatarTools
         private void DrawDebugInfo()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("Debug Information", EditorStyles.boldLabel);
             
-            EditorGUILayout.TextArea(debugInfo, GUILayout.Height(100));
+            showDebugInfo = EditorGUILayout.Foldout(showDebugInfo, GetLocalizedText("debugInformation"), true, EditorStyles.foldoutHeader);
             
-            if (GUILayout.Button("Clear Debug"))
+            if (showDebugInfo)
             {
-                debugInfo = "";
+                EditorGUI.indentLevel++;
+                
+                EditorGUILayout.TextArea(debugInfo, GUILayout.Height(100));
+                
+                if (GUILayout.Button(GetLocalizedText("clearDebug")))
+                {
+                    debugInfo = "";
+                }
+                
+                EditorGUI.indentLevel--;
             }
             
             EditorGUILayout.EndVertical();
@@ -1019,7 +1051,7 @@ namespace VRChatAvatarTools
             
             if (newTexture == null)
             {
-                EditorUtility.DisplayDialog("Error", "Failed to create texture. Please check if the original texture has Read/Write enabled.", "OK");
+                EditorUtility.DisplayDialog(GetLocalizedText("error"), GetLocalizedText("textureCreateError"), GetLocalizedText("ok"));
                 return;
             }
             
@@ -1296,7 +1328,7 @@ namespace VRChatAvatarTools
             
             if (maskTexture == null)
             {
-                EditorUtility.DisplayDialog("Error", "Failed to create mask texture. Please check if the original texture has Read/Write enabled.", "OK");
+                EditorUtility.DisplayDialog(GetLocalizedText("error"), GetLocalizedText("textureCreateError"), GetLocalizedText("ok"));
                 return;
             }
             
@@ -1316,9 +1348,9 @@ namespace VRChatAvatarTools
             
             debugInfo += $"\nMask texture saved: {maskTexturePath}\n";
             
-            EditorUtility.DisplayDialog("Mask Export Complete", 
-                $"Mask texture has been exported to:\n{maskTexturePath}\n\nWhite areas represent selected regions, black areas are unselected.", 
-                "OK");
+            EditorUtility.DisplayDialog(GetLocalizedText("maskExportComplete"), 
+                string.Format(GetLocalizedText("maskExportMsg"), maskTexturePath), 
+                GetLocalizedText("ok"));
         }
         
         private Texture2D CreateMaskTexture()
@@ -1750,6 +1782,176 @@ namespace VRChatAvatarTools
             public int index;
             public Vector3 worldPosition;
             public float distance;
+        }
+        
+        private string GetLocalizedText(string key)
+        {
+            if (currentLanguage == Language.Japanese)
+            {
+                switch (key)
+                {
+                    // Main window
+                    case "title": return "VRChat メッシュカラーエディター";
+                    case "noRenderer": return "SkinnedMeshRendererを持つアバターを選択してください";
+                    
+                    // Target selection
+                    case "targetMesh": return "ターゲットメッシュ";
+                    case "avatar": return "アバター";
+                    case "clear": return "クリア";
+                    case "selectMesh": return "メッシュを選択:";
+                    case "hideOtherMeshes": return "他のメッシュを隠す";
+                    case "meshInfo": return "メッシュ情報:";
+                    case "mesh": return "メッシュ: ";
+                    case "vertices": return "頂点数: ";
+                    case "material": return "マテリアル: ";
+                    case "textureReadable": return "テクスチャ読み取り可能: ";
+                    case "yes": return "はい";
+                    case "no": return "いいえ (コピーします)";
+                    case "statusColliderReady": return "ステータス: コライダー準備完了";
+                    
+                    // Selection mode
+                    case "meshSelection": return "メッシュ選択";
+                    case "selectionMode": return "選択モード";
+                    case "multiSelectionMode": return "複数選択モード";
+                    case "clickAdd": return "クリック: 選択に追加 | Ctrl+クリック: 選択から削除";
+                    case "clickNew": return "クリック: 新しいエリアを選択";
+                    case "selectionSettings": return "選択設定";
+                    case "limitToXAxis": return "X軸の片側に制限";
+                    case "xAxisCenter": return "X軸中心";
+                    case "xAxisHelp": return "選択はX = {0}を越えません\nクリックした側のみが選択されます";
+                    case "totalSelectedVertices": return "選択された頂点の総数: ";
+                    case "clearAllSelections": return "すべての選択をクリア";
+                    case "setupCollider": return "コライダーをセットアップ (デバッグ)";
+                    
+                    // Selection list
+                    case "meshSelections": return "メッシュ選択";
+                    case "noAreasSelected": return "選択されたエリアはありません";
+                    case "area": return "エリア";
+                    case "verts": return "頂点";
+                    
+                    // Color settings
+                    case "colorSettings": return "カラー設定";
+                    case "blendColor": return "ブレンドカラー";
+                    case "strength": return "強度";
+                    case "blendMode": return "ブレンドモード";
+                    case "showPreview": return "プレビューを表示";
+                    
+                    // Blend modes
+                    case "additiveDesc": return "色値を加算（明るくする）";
+                    case "multiplyDesc": return "色値を乗算（暗くする）";
+                    case "colorDesc": return "輝度を保持しながら色相と彩度を適用（Photoshopカラーモード）";
+                    case "overlayDesc": return "ベース色に基づいて乗算とスクリーンを組み合わせる";
+                    
+                    // Actions
+                    case "actions": return "アクション";
+                    case "applyColor": return "カラーを適用";
+                    case "exportMaskTexture": return "マスクテクスチャをエクスポート";
+                    case "resetToOriginal": return "オリジナルにリセット";
+                    
+                    // History
+                    case "editHistory": return "編集履歴";
+                    case "noEditsYet": return "まだ編集がありません";
+                    case "revert": return "元に戻す";
+                    
+                    // Debug
+                    case "debugInformation": return "デバッグ情報";
+                    case "clearDebug": return "デバッグをクリア";
+                    
+                    // Dialog messages
+                    case "noSkinnedMeshRenderer": return "SkinnedMeshRendererなし";
+                    case "noSkinnedMeshRendererMsg": return "選択されたアバターにはSkinnedMeshRendererコンポーネントがありません。";
+                    case "error": return "エラー";
+                    case "textureCreateError": return "テクスチャの作成に失敗しました。元のテクスチャで読み取り/書き込みが有効になっているか確認してください。";
+                    case "maskExportComplete": return "マスクエクスポート完了";
+                    case "maskExportMsg": return "マスクテクスチャがエクスポートされました:\n{0}\n\n白い領域は選択された領域、黒い領域は未選択を表します。";
+                    case "ok": return "OK";
+                    
+                    default: return key;
+                }
+            }
+            else // English
+            {
+                switch (key)
+                {
+                    // Main window
+                    case "title": return "VRChat Mesh Color Editor";
+                    case "noRenderer": return "Please select an avatar with SkinnedMeshRenderer";
+                    
+                    // Target selection
+                    case "targetMesh": return "Target Mesh";
+                    case "avatar": return "Avatar";
+                    case "clear": return "Clear";
+                    case "selectMesh": return "Select Mesh:";
+                    case "hideOtherMeshes": return "Hide Other Meshes";
+                    case "meshInfo": return "Mesh Info:";
+                    case "mesh": return "Mesh: ";
+                    case "vertices": return "Vertices: ";
+                    case "material": return "Material: ";
+                    case "textureReadable": return "Texture Readable: ";
+                    case "yes": return "Yes";
+                    case "no": return "No (will copy)";
+                    case "statusColliderReady": return "Status: Collider Ready";
+                    
+                    // Selection mode
+                    case "meshSelection": return "Mesh Selection";
+                    case "selectionMode": return "Selection Mode";
+                    case "multiSelectionMode": return "Multi Selection Mode";
+                    case "clickAdd": return "Click: Add to selection | Ctrl+Click: Remove from selection";
+                    case "clickNew": return "Click: Select new area";
+                    case "selectionSettings": return "Selection Settings";
+                    case "limitToXAxis": return "Limit to X-Axis Side";
+                    case "xAxisCenter": return "X-Axis Center";
+                    case "xAxisHelp": return "Selection will not cross X = {0}\nClick on either side to select that side only";
+                    case "totalSelectedVertices": return "Total Selected Vertices: ";
+                    case "clearAllSelections": return "Clear All Selections";
+                    case "setupCollider": return "Setup Collider (Debug)";
+                    
+                    // Selection list
+                    case "meshSelections": return "Mesh Selections";
+                    case "noAreasSelected": return "No areas selected";
+                    case "area": return "Area";
+                    case "verts": return "verts";
+                    
+                    // Color settings
+                    case "colorSettings": return "Color Settings";
+                    case "blendColor": return "Blend Color";
+                    case "strength": return "Strength";
+                    case "blendMode": return "Blend Mode";
+                    case "showPreview": return "Show Preview";
+                    
+                    // Blend modes
+                    case "additiveDesc": return "Adds color values (brightens)";
+                    case "multiplyDesc": return "Multiplies color values (darkens)";
+                    case "colorDesc": return "Applies hue and saturation while preserving luminance (Photoshop Color mode)";
+                    case "overlayDesc": return "Combines multiply and screen based on base color";
+                    
+                    // Actions
+                    case "actions": return "Actions";
+                    case "applyColor": return "Apply Color";
+                    case "exportMaskTexture": return "Export Mask Texture";
+                    case "resetToOriginal": return "Reset to Original";
+                    
+                    // History
+                    case "editHistory": return "Edit History";
+                    case "noEditsYet": return "No edits yet";
+                    case "revert": return "Revert";
+                    
+                    // Debug
+                    case "debugInformation": return "Debug Information";
+                    case "clearDebug": return "Clear Debug";
+                    
+                    // Dialog messages
+                    case "noSkinnedMeshRenderer": return "No SkinnedMeshRenderer";
+                    case "noSkinnedMeshRendererMsg": return "The selected avatar doesn't have any SkinnedMeshRenderer components.";
+                    case "error": return "Error";
+                    case "textureCreateError": return "Failed to create texture. Please check if the original texture has Read/Write enabled.";
+                    case "maskExportComplete": return "Mask Export Complete";
+                    case "maskExportMsg": return "Mask texture has been exported to:\n{0}\n\nWhite areas represent selected regions, black areas are unselected.";
+                    case "ok": return "OK";
+                    
+                    default: return key;
+                }
+            }
         }
     }
 }
