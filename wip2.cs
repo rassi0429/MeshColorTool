@@ -1319,17 +1319,31 @@ namespace VRChatAvatarTools
                     debugInfo += $"[Apply] Applied new material to slot {selectedMaterialIndex}: {newMaterial.name}\n";
                 }
                 
-                // Update working materials but keep original materials unchanged
+                // Update working materials and original materials with the new applied material
                 workingMaterials[selectedMaterialIndex] = newMaterial;
                 availableMaterials[selectedMaterialIndex] = newMaterial;
+                // IMPORTANT: Update originalMaterials so Safety component uses the new material as "original"
+                originalMaterials[selectedMaterialIndex] = newMaterial;
             }
             else
             {
                 targetMeshRenderer.sharedMaterial = newMaterial;
+                // Update originalMaterials for single material case too
+                if (originalMaterials != null && originalMaterials.Length > 0)
+                {
+                    originalMaterials[0] = newMaterial;
+                }
             }
             
             // Update the original material reference to the new material
             originalMaterial = newMaterial;
+            
+            debugInfo += $"[Apply] Updated originalMaterials array with new applied material\n";
+            debugInfo += $"[Apply] Updated originalMaterials contents:\n";
+            for (int i = 0; i < originalMaterials.Length; i++)
+            {
+                debugInfo += $"[Apply]   originalMaterials[{i}]: {(originalMaterials[i] != null ? originalMaterials[i].name : "null")}\n";
+            }
             
             // Recreate safety component with the new material as the "original"
             SetupSafetyComponent();
