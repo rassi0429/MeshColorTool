@@ -1810,7 +1810,7 @@ namespace VRChatAvatarTools
                     
                     // Target selection
                     case "targetMesh": return "1.アバターの選択";
-                    case "avatar": return "アバターを選択";
+                    case "avatar": return "アバターまたはGameObjectを選択";
                     case "clear": return "クリア";
                     case "selectMesh": return "メッシュを選択:";
                     case "selectMeshPrompt": return "メッシュを選択してください";
