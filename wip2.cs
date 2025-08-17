@@ -846,13 +846,17 @@ namespace VRChatAvatarTools
             
             Event e = Event.current;
             
-            if (isSelectionMode)
+            // Check if Alt key is held for camera navigation
+            bool isAltHeld = e.alt;
+            
+            // Only take control if Alt is not pressed
+            if (isSelectionMode && !isAltHeld)
             {
                 HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
                 EditorGUIUtility.AddCursorRect(new Rect(0, 0, sceneView.position.width, sceneView.position.height), MouseCursor.CustomCursor);
             }
             
-            if (e.type == EventType.MouseMove && isSelectionMode)
+            if (e.type == EventType.MouseMove && isSelectionMode && !isAltHeld)
             {
                 Ray ray = HandleUtility.GUIPointToWorldRay(e.mousePosition);
                 debugInfo = $"Mouse Ray Origin: {ray.origin}\n";
@@ -860,7 +864,9 @@ namespace VRChatAvatarTools
                 if (this != null) Repaint();
             }
             
-            if (e.type == EventType.MouseDown && e.button == 0 && isSelectionMode)
+            // Only process LEFT clicks when Alt is not held (to allow camera rotation)
+            // button == 0: left click, button == 1: right click, button == 2: middle click
+            if (e.type == EventType.MouseDown && e.button == 0 && isSelectionMode && !isAltHeld)
             {
                 bool isCtrlHeld = e.control;
                 
@@ -931,7 +937,8 @@ namespace VRChatAvatarTools
                 e.Use();
             }
             
-            if (e.type == EventType.MouseUp && e.button == 0 && isSelectionMode)
+            // Only consume mouse up event when Alt is not held
+            if (e.type == EventType.MouseUp && e.button == 0 && isSelectionMode && !isAltHeld)
             {
                 e.Use();
             }
@@ -1329,9 +1336,17 @@ namespace VRChatAvatarTools
             
             ClearAllSelections();
             
+            // Turn off selection mode after applying color
+            isSelectionMode = false;
+            Tools.current = Tool.Move;
+            
             debugInfo += $"\nTexture saved: {newTexturePath}\n";
             debugInfo += $"Material saved: {newMaterialPath}\n";
             debugInfo += $"Material applied and Safety component updated\n";
+            debugInfo += $"Selection mode turned OFF\n";
+            
+            // Repaint to update UI
+            SceneView.RepaintAll();
         }
         
         private bool IsTextureReadable(Texture2D texture)
