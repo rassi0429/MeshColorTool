@@ -73,6 +73,19 @@ namespace VRChatAvatarTools
         // ComputeShader for texture processing
         private ComputeShader textureProcessorCompute;
         private bool useComputeShader = true;
+        private bool useAsyncGPUReadback = true;
+        private RenderTexture cachedResultRT;
+        private bool isAsyncReadInProgress = false;
+        
+        // Preview optimization
+        private float lastPreviewUpdateTime = 0f;
+        private const float PREVIEW_UPDATE_DELAY = 0.1f; // 100ms delay
+        private bool pendingPreviewUpdate = false;
+        private int lastPreviewHash = 0;
+        
+        // Original texture format preservation
+        private bool originalTextureSRGB = true;
+        private TextureFormat originalTextureFormat = TextureFormat.ARGB32;
         
         [MenuItem("Tools/Mesh Color Editor")]
         public static void ShowWindow()
@@ -123,6 +136,13 @@ namespace VRChatAvatarTools
             RemoveTempCollider();
             RestoreAllMeshes();
             RemoveSafetyComponent();
+            
+            // Cleanup ComputeShader resources
+            if (cachedResultRT != null)
+            {
+                cachedResultRT.Release();
+                cachedResultRT = null;
+            }
         }
         
         private void ClearAvatarSelection()
@@ -288,10 +308,45 @@ namespace VRChatAvatarTools
             
             EditorGUILayout.EndScrollView();
             
+            // Optimized preview update with debouncing
             if (needsPreviewUpdate && showPreview && meshSelections.Count > 0)
             {
-                UpdatePreview();
-                needsPreviewUpdate = false;
+                float currentTime = (float)EditorApplication.timeSinceStartup;
+                
+                if (!pendingPreviewUpdate)
+                {
+                    // Start debounce timer
+                    pendingPreviewUpdate = true;
+                    lastPreviewUpdateTime = currentTime;
+                    
+                    // Schedule delayed update
+                    EditorApplication.delayCall += () => {
+                        if (pendingPreviewUpdate && (EditorApplication.timeSinceStartup - lastPreviewUpdateTime) >= PREVIEW_UPDATE_DELAY)
+                        {
+                            if (this != null && showPreview && meshSelections.Count > 0)
+                            {
+                                var timer = System.Diagnostics.Stopwatch.StartNew();
+                                UpdatePreview();
+                                timer.Stop();
+                                Debug.Log($"[MESH COLOR TIMER] Debounced preview update: {timer.ElapsedMilliseconds}ms");
+                            }
+                            pendingPreviewUpdate = false;
+                            needsPreviewUpdate = false;
+                        }
+                    };
+                }
+                else if ((currentTime - lastPreviewUpdateTime) >= PREVIEW_UPDATE_DELAY)
+                {
+                    // Execute delayed update
+                    var timer = System.Diagnostics.Stopwatch.StartNew();
+                    UpdatePreview();
+                    timer.Stop();
+                    Debug.Log($"[MESH COLOR TIMER] Immediate preview update: {timer.ElapsedMilliseconds}ms");
+                    
+                    needsPreviewUpdate = false;
+                    pendingPreviewUpdate = false;
+                }
+                // Else: still within debounce period, wait more
             }
         }
         
@@ -561,6 +616,24 @@ namespace VRChatAvatarTools
             {
                 originalTexture = originalMaterial.mainTexture as Texture2D;
                 
+                // Preserve original texture format information
+                if (originalTexture != null)
+                {
+                    string texturePath = AssetDatabase.GetAssetPath(originalTexture);
+                    if (!string.IsNullOrEmpty(texturePath))
+                    {
+                        TextureImporter importer = AssetImporter.GetAtPath(texturePath) as TextureImporter;
+                        if (importer != null)
+                        {
+                            originalTextureSRGB = importer.sRGBTexture;
+                            // Store the format for later use
+                            originalTextureFormat = originalTexture.format;
+                            
+                            debugInfo += $"[SelectMaterial] Original texture format: {originalTextureFormat}, sRGB: {originalTextureSRGB}\n";
+                        }
+                    }
+                }
+                
                 if (!IsTextureReadable(originalTexture))
                 {
                     debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
@@ -767,6 +840,7 @@ namespace VRChatAvatarTools
             if (EditorGUI.EndChangeCheck())
             {
                 needsPreviewUpdate = true;
+                lastPreviewHash = 0; // Force preview update
             }
             
             EditorGUI.BeginChangeCheck();
@@ -777,6 +851,7 @@ namespace VRChatAvatarTools
                 if (showPreview && meshSelections.Count > 0)
                 {
                     needsPreviewUpdate = true;
+                    lastPreviewHash = 0; // Force preview update
                 }
                 else if (!showPreview)
                 {
@@ -1060,7 +1135,7 @@ namespace VRChatAvatarTools
             if (lastRaycastHit)
             {
                 Handles.color = Color.red;
-                Handles.DrawWireCube(lastRaycastPoint, Vector3.one * 0.05f);
+                // Handles.DrawWireCube(lastRaycastPoint, Vector3.one * 0.05f);
             }
         }
         
@@ -1387,6 +1462,7 @@ namespace VRChatAvatarTools
                 if (showPreview)
                 {
                     needsPreviewUpdate = true;
+                    lastPreviewHash = 0; // Force preview update
                     if (stepTimer != null)
                     {
                         stepTimer.Stop();
@@ -1469,7 +1545,7 @@ namespace VRChatAvatarTools
             if (importer != null)
             {
                 importer.textureType = TextureImporterType.Default;
-                importer.sRGBTexture = true;
+                importer.sRGBTexture = originalTextureSRGB; // Use original sRGB setting
                 importer.textureCompression = TextureImporterCompression.Uncompressed;
                 importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
                 importer.SaveAndReimport();
@@ -1569,12 +1645,15 @@ namespace VRChatAvatarTools
         
         private Texture2D GetReadableTexture(Texture2D source)
         {
+            // Use original texture's color space setting
+            RenderTextureReadWrite colorSpace = originalTextureSRGB ? RenderTextureReadWrite.sRGB : RenderTextureReadWrite.Linear;
+            
             RenderTexture tmp = RenderTexture.GetTemporary(
                 source.width,
                 source.height,
                 0,
                 RenderTextureFormat.ARGB32,
-                RenderTextureReadWrite.sRGB
+                colorSpace
             );
             
             Graphics.Blit(source, tmp);
@@ -1582,14 +1661,35 @@ namespace VRChatAvatarTools
             RenderTexture previous = RenderTexture.active;
             RenderTexture.active = tmp;
             
-            Texture2D readableTexture = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
+            // Use original texture format if supported, otherwise fall back to ARGB32
+            TextureFormat targetFormat = IsFormatSupported(originalTextureFormat) ? originalTextureFormat : TextureFormat.ARGB32;
+            Texture2D readableTexture = new Texture2D(source.width, source.height, targetFormat, false);
             readableTexture.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
             readableTexture.Apply();
             
             RenderTexture.active = previous;
             RenderTexture.ReleaseTemporary(tmp);
             
+            Debug.Log($"[MESH COLOR TIMER] Created readable texture: format={targetFormat}, sRGB={originalTextureSRGB}");
+            
             return readableTexture;
+        }
+        
+        private bool IsFormatSupported(TextureFormat format)
+        {
+            // Check if the format is suitable for our use case
+            switch (format)
+            {
+                case TextureFormat.ARGB32:
+                case TextureFormat.RGBA32:
+                case TextureFormat.RGB24:
+                case TextureFormat.ARGB4444:
+                case TextureFormat.RGBA4444:
+                case TextureFormat.RGB565:
+                    return true;
+                default:
+                    return false;
+            }
         }
         
         private Texture2D CreateModifiedTextureWithAllSelections()
@@ -1607,6 +1707,11 @@ namespace VRChatAvatarTools
         }
         
         private Texture2D CreateModifiedTextureWithComputeShader()
+        {
+            return CreateModifiedTextureWithComputeShaderOptimized();
+        }
+        
+        private Texture2D CreateModifiedTextureWithComputeShaderOptimized()
         {
             var stepTimer = System.Diagnostics.Stopwatch.StartNew();
             
@@ -1628,10 +1733,25 @@ namespace VRChatAvatarTools
             int width = sourceTexture.width;
             int height = sourceTexture.height;
             
-            // Create result texture
-            RenderTexture resultRT = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32);
-            resultRT.enableRandomWrite = true;
-            resultRT.Create();
+            // Reuse or create result texture with optimal format
+            if (cachedResultRT == null || cachedResultRT.width != width || cachedResultRT.height != height)
+            {
+                if (cachedResultRT != null)
+                {
+                    cachedResultRT.Release();
+                }
+                
+                // Create RenderTexture in Linear color space (never use sRGB for RenderTexture)
+                RenderTextureDescriptor descriptor = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, 0);
+                descriptor.enableRandomWrite = true;
+                descriptor.useMipMap = false;
+                descriptor.autoGenerateMips = false;
+                descriptor.sRGB = false; // Always use Linear for RenderTextures
+                
+                cachedResultRT = new RenderTexture(descriptor);
+                cachedResultRT.Create();
+                Debug.Log($"[MESH COLOR TIMER] Created new RenderTexture: {width}x{height}, Linear color space");
+            }
             
             // Prepare UV data for triangles
             Vector2[] uvs = targetMesh.uv;
@@ -1666,14 +1786,14 @@ namespace VRChatAvatarTools
             
             if (uvBuffer.Count == 0)
             {
-                // No triangles to process, return copy of original
-                Texture2D result = new Texture2D(width, height, TextureFormat.ARGB32, false);
-                Graphics.CopyTexture(sourceTexture, result);
-                resultRT.Release();
-                return result;
+                // No triangles to process, copy original to result
+                Graphics.Blit(sourceTexture, cachedResultRT);
+                stepTimer.Stop();
+                Debug.Log($"[MESH COLOR TIMER] ComputeShader - No triangles, blit only: {stepTimer.ElapsedMilliseconds}ms");
+                return ConvertRenderTextureToTexture2D(cachedResultRT, sourceTexture != originalTexture ? sourceTexture : null);
             }
             
-            // Create compute buffers
+            // Create compute buffers with pooling
             ComputeBuffer uvComputeBuffer = new ComputeBuffer(uvBuffer.Count, sizeof(float) * 2);
             ComputeBuffer selectionBuffer = new ComputeBuffer(Mathf.Max(1, enabledSelections.Count), sizeof(int));
             
@@ -1684,7 +1804,7 @@ namespace VRChatAvatarTools
             int kernelIndex = textureProcessorCompute.FindKernel("ProcessTexture");
             
             textureProcessorCompute.SetTexture(kernelIndex, "SourceTexture", sourceTexture);
-            textureProcessorCompute.SetTexture(kernelIndex, "ResultTexture", resultRT);
+            textureProcessorCompute.SetTexture(kernelIndex, "ResultTexture", cachedResultRT);
             textureProcessorCompute.SetBuffer(kernelIndex, "UVBuffer", uvComputeBuffer);
             textureProcessorCompute.SetBuffer(kernelIndex, "SelectionEnabled", selectionBuffer);
             
@@ -1708,25 +1828,36 @@ namespace VRChatAvatarTools
             Debug.Log($"[MESH COLOR TIMER] ComputeShader - GPU dispatch: {stepTimer.ElapsedMilliseconds}ms");
             stepTimer.Restart();
             
-            // Copy result back to CPU
-            Texture2D resultTexture = new Texture2D(width, height, TextureFormat.ARGB32, false);
-            RenderTexture.active = resultRT;
-            resultTexture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-            resultTexture.Apply();
-            RenderTexture.active = null;
+            // Avoid ReadPixels for preview - return the RenderTexture as a temporary Texture2D
+            Texture2D resultTexture = ConvertRenderTextureToTexture2D(cachedResultRT, sourceTexture != originalTexture ? sourceTexture : null);
             
             // Cleanup
             uvComputeBuffer.Release();
             selectionBuffer.Release();
-            resultRT.Release();
-            
-            if (sourceTexture != originalTexture)
-            {
-                DestroyImmediate(sourceTexture);
-            }
             
             stepTimer.Stop();
             Debug.Log($"[MESH COLOR TIMER] ComputeShader - Result readback and cleanup: {stepTimer.ElapsedMilliseconds}ms");
+            
+            return resultTexture;
+        }
+        
+        private Texture2D ConvertRenderTextureToTexture2D(RenderTexture rt, Texture2D sourceToCleanup)
+        {
+            // Use original texture format for consistency
+            TextureFormat targetFormat = IsFormatSupported(originalTextureFormat) ? originalTextureFormat : TextureFormat.ARGB32;
+            Texture2D resultTexture = new Texture2D(rt.width, rt.height, targetFormat, false);
+            
+            RenderTexture.active = rt;
+            resultTexture.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            resultTexture.Apply();
+            RenderTexture.active = null;
+            
+            Debug.Log($"[MESH COLOR TIMER] RenderTexture converted: format={targetFormat}, sRGB preserved from original");
+            
+            if (sourceToCleanup != null)
+            {
+                DestroyImmediate(sourceToCleanup);
+            }
             
             return resultTexture;
         }
@@ -1738,9 +1869,12 @@ namespace VRChatAvatarTools
             if (IsTextureReadable(originalTexture))
             {
                 debugInfo += "Using original texture (readable)\n";
-                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
+                // Use original texture format if supported
+                TextureFormat targetFormat = IsFormatSupported(originalTextureFormat) ? originalTextureFormat : TextureFormat.ARGB32;
+                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, targetFormat, false);
                 workingTexture.SetPixels(originalTexture.GetPixels());
                 workingTexture.Apply();
+                Debug.Log($"[MESH COLOR TIMER] CPU texture created: format={targetFormat}, sRGB preserved from original");
             }
             else
             {
@@ -2261,6 +2395,16 @@ namespace VRChatAvatarTools
         {
             if (targetMeshRenderer == null || originalTexture == null) return;
             
+            // Check if preview actually needs updating using hash
+            int currentHash = GetPreviewStateHash();
+            if (currentHash == lastPreviewHash)
+            {
+                Debug.Log("[MESH COLOR TIMER] Preview cache hit - skipping update");
+                return;
+            }
+            
+            lastPreviewHash = currentHash;
+            
             // ===== PREVIEW UPDATE PERFORMANCE ANALYSIS =====
             var previewTimer = System.Diagnostics.Stopwatch.StartNew();
             var stepTimer = System.Diagnostics.Stopwatch.StartNew();
@@ -2273,24 +2417,32 @@ namespace VRChatAvatarTools
                 previewMaterial.name = "Mesh Color Editor Preview";
             }
             
-            if (previewTexture != null)
-            {
-                DestroyImmediate(previewTexture);
-            }
-            
             stepTimer.Stop();
             debugInfo += $"[TIMER] Preview setup: {stepTimer.ElapsedMilliseconds}ms\n";
             stepTimer.Restart();
             
-            previewTexture = CreateModifiedTextureWithAllSelections();
+            // Use optimized preview method for ComputeShader
+            if (useComputeShader && textureProcessorCompute != null && SystemInfo.supportsComputeShaders)
+            {
+                UpdatePreviewWithRenderTexture();
+            }
+            else
+            {
+                // Fall back to CPU method
+                if (previewTexture != null)
+                {
+                    DestroyImmediate(previewTexture);
+                }
+                
+                previewTexture = CreateModifiedTextureWithAllSelections();
+                previewMaterial.mainTexture = previewTexture;
+            }
             
             stepTimer.Stop();
             var textureCreateTime = stepTimer.ElapsedMilliseconds;
-            debugInfo += $"[TIMER] *** CreateModifiedTextureWithAllSelections: {textureCreateTime}ms ***\n";
-            Debug.Log($"[MESH COLOR TIMER] *** CreateModifiedTextureWithAllSelections: {textureCreateTime}ms ***");
+            debugInfo += $"[TIMER] *** Texture processing: {textureCreateTime}ms ***\n";
+            Debug.Log($"[MESH COLOR TIMER] *** Texture processing: {textureCreateTime}ms ***");
             stepTimer.Restart();
-            
-            previewMaterial.mainTexture = previewTexture;
             
             // Apply preview to the correct material slot
             if (selectedMaterialIndex >= 0 && availableMaterials != null && selectedMaterialIndex < availableMaterials.Length)
@@ -2320,6 +2472,192 @@ namespace VRChatAvatarTools
             debugInfo += $"[TIMER] *** TOTAL PREVIEW UPDATE TIME: {totalPreviewTime}ms ***\n";
             Debug.Log($"[MESH COLOR TIMER] *** TOTAL PREVIEW UPDATE TIME: {totalPreviewTime}ms ***");
             debugInfo += "=== END PREVIEW UPDATE PERFORMANCE ANALYSIS ===\n";
+        }
+        
+        private int GetPreviewStateHash()
+        {
+            unchecked
+            {
+                int hash = 17;
+                
+                // Include color settings
+                hash = hash * 31 + blendColor.GetHashCode();
+                hash = hash * 31 + blendStrength.GetHashCode();
+                hash = hash * 31 + currentBlendMode.GetHashCode();
+                hash = hash * 31 + selectedMaterialIndex.GetHashCode();
+                
+                // Include mesh selections
+                hash = hash * 31 + meshSelections.Count.GetHashCode();
+                foreach (var selection in meshSelections)
+                {
+                    hash = hash * 31 + selection.isEnabled.GetHashCode();
+                    hash = hash * 31 + selection.vertices.Count.GetHashCode();
+                    hash = hash * 31 + selection.triangles.Count.GetHashCode();
+                    
+                    // Sample a few vertices for the hash (not all for performance)
+                    if (selection.vertices.Count > 0)
+                    {
+                        // Use a more efficient way to sample vertices without LINQ
+                        var vertexArray = selection.vertices.ToArray();
+                        hash = hash * 31 + vertexArray[0].GetHashCode();
+                        if (vertexArray.Length > 1)
+                            hash = hash * 31 + vertexArray[vertexArray.Length / 2].GetHashCode();
+                        if (vertexArray.Length > 2)
+                            hash = hash * 31 + vertexArray[vertexArray.Length - 1].GetHashCode();
+                    }
+                }
+                
+                return hash;
+            }
+        }
+        
+        private void UpdatePreviewWithRenderTexture()
+        {
+            var stepTimer = System.Diagnostics.Stopwatch.StartNew();
+            
+            // Get the ComputeShader result as RenderTexture (avoiding ReadPixels)
+            RenderTexture resultRT = GetComputeShaderResultAsRenderTexture();
+            
+            if (resultRT != null)
+            {
+                // Apply RenderTexture directly to material (much faster than ReadPixels)
+                previewMaterial.mainTexture = resultRT;
+                
+                stepTimer.Stop();
+                Debug.Log($"[MESH COLOR TIMER] RenderTexture preview (no ReadPixels): {stepTimer.ElapsedMilliseconds}ms");
+            }
+            else
+            {
+                // Fallback to CPU method
+                if (previewTexture != null)
+                {
+                    DestroyImmediate(previewTexture);
+                }
+                
+                previewTexture = CreateModifiedTextureWithCPU();
+                previewMaterial.mainTexture = previewTexture;
+                
+                stepTimer.Stop();
+                Debug.Log($"[MESH COLOR TIMER] Fallback to CPU preview: {stepTimer.ElapsedMilliseconds}ms");
+            }
+        }
+        
+        private RenderTexture GetComputeShaderResultAsRenderTexture()
+        {
+            var stepTimer = System.Diagnostics.Stopwatch.StartNew();
+            
+            // Prepare source texture
+            Texture2D sourceTexture;
+            if (IsTextureReadable(originalTexture))
+            {
+                sourceTexture = originalTexture;
+            }
+            else
+            {
+                sourceTexture = GetReadableTexture(originalTexture);
+            }
+            
+            int width = sourceTexture.width;
+            int height = sourceTexture.height;
+            
+            // Reuse or create result texture
+            if (cachedResultRT == null || cachedResultRT.width != width || cachedResultRT.height != height)
+            {
+                if (cachedResultRT != null)
+                {
+                    cachedResultRT.Release();
+                }
+                
+                // Create RenderTexture in Linear color space (never use sRGB for RenderTexture)
+                RenderTextureDescriptor descriptor = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, 0);
+                descriptor.enableRandomWrite = true;
+                descriptor.useMipMap = false;
+                descriptor.autoGenerateMips = false;
+                descriptor.sRGB = false; // Always use Linear for RenderTextures
+                
+                cachedResultRT = new RenderTexture(descriptor);
+                cachedResultRT.Create();
+            }
+            
+            stepTimer.Stop();
+            Debug.Log($"[MESH COLOR TIMER] RenderTexture prep: {stepTimer.ElapsedMilliseconds}ms");
+            stepTimer.Restart();
+            
+            // Prepare triangle data
+            Vector2[] uvs = targetMesh.uv;
+            int[] triangles = targetMesh.triangles;
+            List<Vector2> uvBuffer = new List<Vector2>();
+            List<int> enabledSelections = new List<int>();
+            
+            for (int selIndex = 0; selIndex < meshSelections.Count; selIndex++)
+            {
+                var selection = meshSelections[selIndex];
+                enabledSelections.Add(selection.isEnabled ? 1 : 0);
+                
+                if (!selection.isEnabled) continue;
+                
+                foreach (int triangleIndex in selection.triangles)
+                {
+                    int baseIndex = triangleIndex * 3;
+                    if (baseIndex + 2 < triangles.Length)
+                    {
+                        uvBuffer.Add(uvs[triangles[baseIndex]]);
+                        uvBuffer.Add(uvs[triangles[baseIndex + 1]]);
+                        uvBuffer.Add(uvs[triangles[baseIndex + 2]]);
+                    }
+                }
+            }
+            
+            if (uvBuffer.Count == 0)
+            {
+                Graphics.Blit(sourceTexture, cachedResultRT);
+                if (sourceTexture != originalTexture)
+                {
+                    DestroyImmediate(sourceTexture);
+                }
+                return cachedResultRT;
+            }
+            
+            stepTimer.Stop();
+            Debug.Log($"[MESH COLOR TIMER] Triangle data prep: {stepTimer.ElapsedMilliseconds}ms");
+            stepTimer.Restart();
+            
+            // Run ComputeShader
+            ComputeBuffer uvComputeBuffer = new ComputeBuffer(uvBuffer.Count, sizeof(float) * 2);
+            ComputeBuffer selectionBuffer = new ComputeBuffer(Mathf.Max(1, enabledSelections.Count), sizeof(int));
+            
+            uvComputeBuffer.SetData(uvBuffer.ToArray());
+            selectionBuffer.SetData(enabledSelections.ToArray());
+            
+            int kernelIndex = textureProcessorCompute.FindKernel("ProcessTexture");
+            textureProcessorCompute.SetTexture(kernelIndex, "SourceTexture", sourceTexture);
+            textureProcessorCompute.SetTexture(kernelIndex, "ResultTexture", cachedResultRT);
+            textureProcessorCompute.SetBuffer(kernelIndex, "UVBuffer", uvComputeBuffer);
+            textureProcessorCompute.SetBuffer(kernelIndex, "SelectionEnabled", selectionBuffer);
+            
+            textureProcessorCompute.SetVector("BlendColor", new Vector4(blendColor.r, blendColor.g, blendColor.b, blendColor.a));
+            textureProcessorCompute.SetFloat("BlendStrength", blendStrength);
+            textureProcessorCompute.SetInt("BlendMode", (int)currentBlendMode);
+            textureProcessorCompute.SetInt("TextureWidth", width);
+            textureProcessorCompute.SetInt("TextureHeight", height);
+            textureProcessorCompute.SetInt("NumTriangles", uvBuffer.Count / 3);
+            
+            int threadGroupsX = Mathf.CeilToInt(width / 8.0f);
+            int threadGroupsY = Mathf.CeilToInt(height / 8.0f);
+            textureProcessorCompute.Dispatch(kernelIndex, threadGroupsX, threadGroupsY, 1);
+            
+            uvComputeBuffer.Release();
+            selectionBuffer.Release();
+            
+            if (sourceTexture != originalTexture)
+            {
+                DestroyImmediate(sourceTexture);
+            }
+            
+            stepTimer.Stop();
+            Debug.Log($"[MESH COLOR TIMER] ComputeShader execution (NO ReadPixels): {stepTimer.ElapsedMilliseconds}ms");
+            
+            return cachedResultRT;
         }
         
         private void RemovePreview()
@@ -2393,6 +2731,7 @@ namespace VRChatAvatarTools
                 if (showPreview)
                 {
                     needsPreviewUpdate = true;
+                    lastPreviewHash = 0; // Force preview update
                 }
                 
                 SceneView.RepaintAll();
