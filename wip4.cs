@@ -1419,7 +1419,7 @@ namespace VRChatAvatarTools
             return readableTexture;
         }
         
-        private Texture2D GetMeshThumbnail(Mesh mesh)
+        private Texture2D GetMeshThumbnail(Mesh mesh, SkinnedMeshRenderer renderer = null)
         {
             if (mesh == null) return null;
             
@@ -1428,16 +1428,24 @@ namespace VRChatAvatarTools
                 return meshThumbnailCache[mesh];
             }
             
+            // カラーサムネイルを生成
+            Texture2D colorThumbnail = CreateColorMeshPreview(mesh, renderer);
+            
+            if (colorThumbnail != null)
+            {
+                meshThumbnailCache[mesh] = colorThumbnail;
+                return colorThumbnail;
+            }
+            
+            // フォールバック: AssetPreviewを使用
             Texture2D thumbnail = AssetPreview.GetAssetPreview(mesh);
             if (thumbnail == null)
             {
-                // AssetPreviewがまだ生成されていない場合、デフォルトのメッシュアイコンを使用
                 thumbnail = EditorGUIUtility.FindTexture("d_Mesh Icon");
             }
             
             if (thumbnail != null)
             {
-                // サムネイルをキャッシュサイズにリサイズ
                 Texture2D resizedThumbnail = new Texture2D(thumbnailSize, thumbnailSize, TextureFormat.ARGB32, false);
                 RenderTexture tmp = RenderTexture.GetTemporary(thumbnailSize, thumbnailSize, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
                 RenderTexture previous = RenderTexture.active;
@@ -1457,6 +1465,255 @@ namespace VRChatAvatarTools
             return null;
         }
         
+        private Texture2D CreateColorMeshPreview(Mesh mesh, SkinnedMeshRenderer renderer = null)
+        {
+            if (mesh == null) return null;
+            
+            // プレビュー用の独立したレイヤーを使用
+            int previewLayer = 31; // 通常使われないレイヤー
+            
+            // プレビュー用のレンダーテクスチャを作成
+            RenderTexture renderTexture = RenderTexture.GetTemporary(thumbnailSize * 2, thumbnailSize * 2, 24, RenderTextureFormat.ARGB32);
+            renderTexture.antiAliasing = 4;
+            
+            // プレビュー用のカメラを作成
+            GameObject cameraGO = new GameObject("PreviewCamera");
+            cameraGO.hideFlags = HideFlags.HideAndDontSave;
+            Camera previewCamera = cameraGO.AddComponent<Camera>();
+            previewCamera.targetTexture = renderTexture;
+            previewCamera.clearFlags = CameraClearFlags.SolidColor;
+            previewCamera.backgroundColor = new Color(0.2f, 0.2f, 0.2f, 0f);
+            float fieldOfView = 30f;
+            previewCamera.fieldOfView = fieldOfView;
+            previewCamera.cullingMask = 1 << previewLayer; // プレビューレイヤーのみ表示
+            
+            // プレビュー用のメッシュオブジェクトを作成
+            GameObject meshGO = new GameObject("PreviewMesh");
+            meshGO.hideFlags = HideFlags.HideAndDontSave;
+            meshGO.layer = previewLayer;
+            
+            // SkinnedMeshRendererの場合の処理
+            if (renderer != null)
+            {
+                // SkinnedMeshRendererから直接メッシュを取得してMeshRendererとして作成
+                MeshFilter meshFilter = meshGO.AddComponent<MeshFilter>();
+                MeshRenderer meshRenderer = meshGO.AddComponent<MeshRenderer>();
+                
+                // ベイクされたメッシュを作成
+                Mesh bakedMesh = new Mesh();
+                renderer.BakeMesh(bakedMesh);
+                meshFilter.sharedMesh = bakedMesh;
+                
+                // マテリアルを設定
+                if (renderer.sharedMaterials != null && renderer.sharedMaterials.Length > 0)
+                {
+                    meshRenderer.sharedMaterials = renderer.sharedMaterials;
+                }
+                else if (renderer.sharedMaterial != null)
+                {
+                    meshRenderer.sharedMaterial = renderer.sharedMaterial;
+                }
+                else
+                {
+                    Material defaultMat = new Material(Shader.Find("Standard"));
+                    defaultMat.color = Color.white;
+                    meshRenderer.sharedMaterial = defaultMat;
+                }
+                
+                // 境界ボックスを取得
+                Bounds bounds = bakedMesh.bounds;
+                
+                // メッシュの種類を推測して最適な角度を設定
+                Vector3 cameraDirection = GetOptimalCameraAngle(renderer.name, bounds);
+                
+                // カメラの距離を計算（全体が映るように）
+                float distance = CalculateOptimalCameraDistance(bounds, fieldOfView, cameraDirection);
+                
+                // カメラの位置を調整
+                cameraGO.transform.position = bounds.center + cameraDirection.normalized * distance;
+                cameraGO.transform.LookAt(bounds.center);
+                
+                // 後でクリーンアップ用に保持
+                mesh = bakedMesh;
+            }
+            else
+            {
+                // 通常のメッシュの場合
+                MeshFilter meshFilter = meshGO.AddComponent<MeshFilter>();
+                MeshRenderer meshRenderer = meshGO.AddComponent<MeshRenderer>();
+                meshFilter.sharedMesh = mesh;
+                
+                // デフォルトマテリアル
+                Material defaultMat = new Material(Shader.Find("Standard"));
+                defaultMat.color = Color.white;
+                meshRenderer.sharedMaterial = defaultMat;
+                
+                // 境界ボックスを取得
+                Bounds bounds = mesh.bounds;
+                
+                // デフォルトの角度
+                Vector3 cameraDirection = new Vector3(1.0f, 0.6f, -1.8f);
+                
+                // カメラの距離を計算（全体が映るように）
+                float distance = CalculateOptimalCameraDistance(bounds, fieldOfView, cameraDirection);
+                
+                // カメラの位置を調整
+                cameraGO.transform.position = bounds.center + cameraDirection.normalized * distance;
+                cameraGO.transform.LookAt(bounds.center);
+            }
+            
+            // ライトを追加
+            GameObject lightGO = new GameObject("PreviewLight");
+            lightGO.hideFlags = HideFlags.HideAndDontSave;
+            lightGO.layer = previewLayer;
+            Light light = lightGO.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.intensity = 1.0f;
+            light.color = Color.white;
+            lightGO.transform.rotation = Quaternion.Euler(30, -30, 0);
+            
+            // アンビエントライトを追加
+            GameObject ambientLightGO = new GameObject("AmbientLight");
+            ambientLightGO.hideFlags = HideFlags.HideAndDontSave;
+            ambientLightGO.layer = previewLayer;
+            Light ambientLight = ambientLightGO.AddComponent<Light>();
+            ambientLight.type = LightType.Directional;
+            ambientLight.intensity = 0.5f;
+            ambientLight.color = Color.white;
+            ambientLightGO.transform.rotation = Quaternion.Euler(-30, 30, 0);
+            
+            // レンダリング
+            previewCamera.Render();
+            
+            // レンダーテクスチャから読み取り
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = renderTexture;
+            
+            Texture2D thumbnail = new Texture2D(thumbnailSize, thumbnailSize, TextureFormat.ARGB32, false);
+            thumbnail.ReadPixels(new Rect((thumbnailSize * 2 - thumbnailSize) / 2, (thumbnailSize * 2 - thumbnailSize) / 2, thumbnailSize, thumbnailSize), 0, 0);
+            thumbnail.Apply();
+            
+            RenderTexture.active = previous;
+            
+            // クリーンアップ
+            DestroyImmediate(cameraGO);
+            DestroyImmediate(meshGO);
+            DestroyImmediate(lightGO);
+            DestroyImmediate(ambientLightGO);
+            
+            // ベイクされたメッシュをクリーンアップ
+            if (renderer != null && mesh != null)
+            {
+                DestroyImmediate(mesh);
+            }
+            
+            RenderTexture.ReleaseTemporary(renderTexture);
+            
+            return thumbnail;
+        }
+        
+        private float CalculateOptimalCameraDistance(Bounds bounds, float fieldOfView, Vector3 cameraDirection)
+        {
+            // カメラの向きを正規化
+            Vector3 normalizedDir = cameraDirection.normalized;
+            
+            // バウンディングボックスの8つの頂点を取得
+            Vector3[] corners = new Vector3[8];
+            corners[0] = bounds.min;
+            corners[1] = new Vector3(bounds.min.x, bounds.min.y, bounds.max.z);
+            corners[2] = new Vector3(bounds.min.x, bounds.max.y, bounds.min.z);
+            corners[3] = new Vector3(bounds.max.x, bounds.min.y, bounds.min.z);
+            corners[4] = new Vector3(bounds.max.x, bounds.max.y, bounds.min.z);
+            corners[5] = new Vector3(bounds.max.x, bounds.min.y, bounds.max.z);
+            corners[6] = new Vector3(bounds.min.x, bounds.max.y, bounds.max.z);
+            corners[7] = bounds.max;
+            
+            // 各頂点から必要な距離を計算
+            float maxDistance = 0f;
+            float halfFOV = fieldOfView * 0.5f * Mathf.Deg2Rad;
+            float tanHalfFOV = Mathf.Tan(halfFOV);
+            
+            foreach (Vector3 corner in corners)
+            {
+                // 中心から頂点へのベクトル
+                Vector3 toCorner = corner - bounds.center;
+                
+                // カメラ方向に垂直な平面への投影距離
+                float perpDistance = Vector3.Cross(toCorner, normalizedDir).magnitude;
+                
+                // カメラ方向への投影距離
+                float parallelDistance = Vector3.Dot(toCorner, -normalizedDir);
+                
+                // FOVを考慮した必要距離
+                float requiredDistance = perpDistance / tanHalfFOV + parallelDistance;
+                
+                maxDistance = Mathf.Max(maxDistance, requiredDistance);
+            }
+            
+            // パディングを追加（10%の余白）
+            return maxDistance * 1.1f;
+        }
+        
+        private Vector3 GetOptimalCameraAngle(string meshName, Bounds bounds)
+        {
+            string lowerName = meshName.ToLower();
+            
+            // アスペクト比を計算（縦長か横長か）
+            float heightRatio = bounds.size.y / Mathf.Max(bounds.size.x, bounds.size.z);
+            bool isTall = heightRatio > 1.5f; // 縦長のメッシュ
+            
+            // 頭部・髪のメッシュ
+            if (lowerName.Contains("head") || lowerName.Contains("hair") || 
+                lowerName.Contains("face") || lowerName.Contains("頭") || 
+                lowerName.Contains("髪"))
+            {
+                // 顔が見えるように少し上から斜め前方
+                return new Vector3(0.7f, 0.5f, -1.8f);
+            }
+            // 体・ボディメッシュ
+            else if (lowerName.Contains("body") || lowerName.Contains("身体") || 
+                     lowerName.Contains("胴") || isTall)
+            {
+                // 全身が見えるように斜め前方から
+                return new Vector3(1.2f, 0.8f, -2.0f);
+            }
+            // 服・衣装メッシュ
+            else if (lowerName.Contains("cloth") || lowerName.Contains("wear") || 
+                     lowerName.Contains("shirt") || lowerName.Contains("dress") ||
+                     lowerName.Contains("服") || lowerName.Contains("衣装"))
+            {
+                // 服のデザインが見えるように正面寄り
+                return new Vector3(0.5f, 0.3f, -2.2f);
+            }
+            // アクセサリー・小物
+            else if (lowerName.Contains("accessory") || lowerName.Contains("jewel") ||
+                     lowerName.Contains("ring") || lowerName.Contains("アクセ"))
+            {
+                // 詳細が見えるように近めで斜め
+                return new Vector3(0.8f, 0.8f, -1.5f);
+            }
+            // 靴・足元
+            else if (lowerName.Contains("shoe") || lowerName.Contains("boot") ||
+                     lowerName.Contains("foot") || lowerName.Contains("靴"))
+            {
+                // 横から少し上
+                return new Vector3(1.5f, 0.3f, -1.5f);
+            }
+            // 手・腕
+            else if (lowerName.Contains("hand") || lowerName.Contains("arm") ||
+                     lowerName.Contains("手") || lowerName.Contains("腕"))
+            {
+                // 手の形が見えるように
+                return new Vector3(1.0f, 0.5f, -1.8f);
+            }
+            // デフォルト（3/4ビュー）
+            else
+            {
+                // 汎用的な斜め前方からの角度
+                return new Vector3(1.0f, 0.6f, -1.8f);
+            }
+        }
+        
         private void DrawMeshRendererWithThumbnails()
         {
             if (availableRenderers == null || availableRenderers.Length == 0) return;
@@ -1469,7 +1726,7 @@ namespace VRChatAvatarTools
             if (selectedRendererIndex >= 0 && selectedRendererIndex < availableRenderers.Length)
             {
                 var selectedRenderer = availableRenderers[selectedRendererIndex];
-                Texture2D thumbnail = GetMeshThumbnail(selectedRenderer.sharedMesh);
+                Texture2D thumbnail = GetMeshThumbnail(selectedRenderer.sharedMesh, selectedRenderer);
                 
                 if (thumbnail != null)
                 {
@@ -1511,7 +1768,7 @@ namespace VRChatAvatarTools
                 for (int i = 0; i < availableRenderers.Length; i++)
                 {
                     var renderer = availableRenderers[i];
-                    Texture2D thumbnail = GetMeshThumbnail(renderer.sharedMesh);
+                    Texture2D thumbnail = GetMeshThumbnail(renderer.sharedMesh, renderer);
                     
                     EditorGUILayout.BeginHorizontal();
                     
@@ -1862,9 +2119,16 @@ namespace VRChatAvatarTools
                     break;
                     
                 case BlendMode.Color:
-                    float baseLuminance = GetLuminance(baseColor);
-                    Color colorized = SetLuminance(blendColor, baseLuminance);
-                    result = Color.Lerp(baseColor, colorized, strength);
+                    // Photoshop-style Color blend mode: applies hue and saturation of blend color while preserving luminance of base
+                    Vector3 baseHSL = RGBToHSL(baseColor);
+                    Vector3 blendHSL = RGBToHSL(blendColor);
+                    
+                    // Keep base luminance, use blend hue and saturation
+                    Vector3 resultHSL = new Vector3(blendHSL.x, blendHSL.y, baseHSL.z);
+                    Color hslResult = HSLToRGB(resultHSL);
+                    hslResult.a = baseColor.a;
+                    
+                    result = Color.Lerp(baseColor, hslResult, strength);
                     break;
                     
                 case BlendMode.Overlay:
@@ -1888,6 +2152,82 @@ namespace VRChatAvatarTools
         private float GetLuminance(Color color)
         {
             return 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
+        }
+        
+        // RGB to HSL conversion
+        public static Vector3 RGBToHSL(Color color)
+        {
+            float r = color.r;
+            float g = color.g;
+            float b = color.b;
+            
+            float max = Mathf.Max(r, Mathf.Max(g, b));
+            float min = Mathf.Min(r, Mathf.Min(g, b));
+            float h, s, l;
+            
+            l = (max + min) / 2f;
+            
+            if (max == min)
+            {
+                h = s = 0; // achromatic
+            }
+            else
+            {
+                float d = max - min;
+                s = l > 0.5f ? d / (2f - max - min) : d / (max + min);
+                
+                if (max == r)
+                {
+                    h = (g - b) / d + (g < b ? 6f : 0f);
+                }
+                else if (max == g)
+                {
+                    h = (b - r) / d + 2f;
+                }
+                else
+                {
+                    h = (r - g) / d + 4f;
+                }
+                
+                h /= 6f;
+            }
+            
+            return new Vector3(h, s, l);
+        }
+        
+        // HSL to RGB conversion
+        public static Color HSLToRGB(Vector3 hsl)
+        {
+            float h = hsl.x;
+            float s = hsl.y;
+            float l = hsl.z;
+            
+            float r, g, b;
+            
+            if (s == 0)
+            {
+                r = g = b = l; // achromatic
+            }
+            else
+            {
+                float q = l < 0.5f ? l * (1f + s) : l + s - l * s;
+                float p = 2f * l - q;
+                r = HueToRGB(p, q, h + 1f/3f);
+                g = HueToRGB(p, q, h);
+                b = HueToRGB(p, q, h - 1f/3f);
+            }
+            
+            return new Color(r, g, b, 1f);
+        }
+        
+        private static float HueToRGB(float p, float q, float t)
+        {
+            if (t < 0f) t += 1f;
+            if (t > 1f) t -= 1f;
+            if (t < 1f/6f) return p + (q - p) * 6f * t;
+            if (t < 1f/2f) return q;
+            if (t < 2f/3f) return p + (q - p) * (2f/3f - t) * 6f;
+            return p;
         }
         
         private Color SetLuminance(Color color, float targetLuminance)
@@ -2870,8 +3210,13 @@ namespace VRChatAvatarTools
                         originalColor.a
                     );
                     break;
-                default: // Color
-                    result = paintColor;
+                default: // Color (0) - Photoshop-style
+                    // Apply hue and saturation while preserving luminance
+                    Vector3 baseHSL = MeshColorEditorWindow.RGBToHSL(originalColor);
+                    Vector3 blendHSL = MeshColorEditorWindow.RGBToHSL(paintColor);
+                    Vector3 resultHSL = new Vector3(blendHSL.x, blendHSL.y, baseHSL.z);
+                    result = MeshColorEditorWindow.HSLToRGB(resultHSL);
+                    result.a = originalColor.a;
                     break;
             }
             
@@ -2954,8 +3299,13 @@ namespace VRChatAvatarTools
                         originalColor.a
                     );
                     break;
-                default: // Color
-                    result = paintColor;
+                default: // Color (0) - Photoshop-style
+                    // Apply hue and saturation while preserving luminance
+                    Vector3 baseHSL = MeshColorEditorWindow.RGBToHSL(originalColor);
+                    Vector3 blendHSL = MeshColorEditorWindow.RGBToHSL(paintColor);
+                    Vector3 resultHSL = new Vector3(blendHSL.x, blendHSL.y, baseHSL.z);
+                    result = MeshColorEditorWindow.HSLToRGB(resultHSL);
+                    result.a = originalColor.a;
                     break;
             }
             
