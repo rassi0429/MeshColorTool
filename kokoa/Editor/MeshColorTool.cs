@@ -553,11 +553,6 @@ namespace VRChatAvatarTools
             
             EditorGUILayout.LabelField(GetLocalizedText("totalSelectedVertices") + GetTotalSelectedVertices());
             
-            if (GUILayout.Button(GetLocalizedText("clearAllSelections")))
-            {
-                ClearAllSelections();
-            }
-            
             EditorGUILayout.EndVertical();
         }
         
@@ -605,6 +600,11 @@ namespace VRChatAvatarTools
                 
                 EditorGUILayout.EndScrollView();
                 EditorGUILayout.Space();
+            }
+            
+            if (GUILayout.Button(GetLocalizedText("clearAllSelections")))
+            {
+                ClearAllSelections();
             }
             
             EditorGUILayout.EndVertical();
@@ -665,7 +665,7 @@ namespace VRChatAvatarTools
         private void DrawActions()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField(GetLocalizedText("actions"), EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(GetLocalizedText("apply"), EditorStyles.boldLabel);
             
             GUI.enabled = meshSelections.Count > 0 && originalTexture != null;
             
@@ -673,6 +673,18 @@ namespace VRChatAvatarTools
             {
                 ApplyColorToSelection();
             }
+            
+            GUI.enabled = true;
+            
+            if (GUILayout.Button(GetLocalizedText("resetToOriginal")))
+            {
+                ResetToOriginal();
+            }
+            
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(GetLocalizedText("textureOutput"), EditorStyles.boldLabel);
+            
+            GUI.enabled = meshSelections.Count > 0 && originalTexture != null;
             
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(GetLocalizedText("exportMaskTexture"), GUILayout.Height(30)))
@@ -687,11 +699,6 @@ namespace VRChatAvatarTools
             EditorGUILayout.EndHorizontal();
             
             GUI.enabled = true;
-            
-            if (GUILayout.Button(GetLocalizedText("resetToOriginal")))
-            {
-                ResetToOriginal();
-            }
             
             EditorGUILayout.Space();
             EditorGUILayout.HelpBox(GetLocalizedText("materialSafetyHint"), MessageType.Info);
@@ -2635,8 +2642,9 @@ namespace VRChatAvatarTools
                     case "overlayDesc": return "ベース色に基づいて乗算とスクリーンを組み合わせる";
                     
                     // Actions
-                    case "actions": return "アクション";
-                    case "applyColor": return "色をマテリアルに適用";
+                    case "apply": return "アクション";
+                    case "textureOutput": return "テクスチャ出力";
+                    case "applyColor": return "適用";
                     case "exportMaskTexture": return "マスクをエクスポート";
                     case "exportTexture": return "テクスチャをエクスポート";
                     case "resetToOriginal": return "オリジナルにリセット";
@@ -2722,8 +2730,9 @@ namespace VRChatAvatarTools
                     case "overlayDesc": return "Combines multiply and screen based on base color";
                     
                     // Actions
-                    case "actions": return "Actions";
-                    case "applyColor": return "Apply Color to Material";
+                    case "apply": return "Apply";
+                    case "textureOutput": return "Texture Output";
+                    case "applyColor": return "Apply";
                     case "exportMaskTexture": return "Export Mask";
                     case "exportTexture": return "Export Texture";
                     case "resetToOriginal": return "Reset to Original";
