@@ -46,6 +46,7 @@ namespace VRChatAvatarTools
         private bool limitToXAxis = false;
         private float xAxisThreshold = 0.0f;
         private int maxVertexCount = 1000;
+        private bool showSelectionSettings = false;
         
         // Multiple selection support
         private List<MeshSelection> meshSelections = new List<MeshSelection>();
@@ -619,17 +620,22 @@ namespace VRChatAvatarTools
                 
                 // Selection Settings
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField(GetLocalizedText("selectionSettings"), EditorStyles.miniBoldLabel);
+                showSelectionSettings = EditorGUILayout.Foldout(showSelectionSettings, GetLocalizedText("selectionSettings"), true);
                 
-                maxVertexCount = EditorGUILayout.IntSlider(GetLocalizedText("maxVertexCount"), maxVertexCount, 100, 10000);
-                
-                limitToXAxis = EditorGUILayout.Toggle(GetLocalizedText("limitToXAxis"), limitToXAxis);
-                
-                if (limitToXAxis)
+                if (showSelectionSettings)
                 {
                     EditorGUI.indentLevel++;
-                    xAxisThreshold = EditorGUILayout.FloatField(GetLocalizedText("xAxisCenter"), xAxisThreshold);
-                    EditorGUILayout.HelpBox(string.Format(GetLocalizedText("xAxisHelp"), xAxisThreshold), MessageType.Info);
+                    maxVertexCount = EditorGUILayout.IntSlider(GetLocalizedText("maxVertexCount"), maxVertexCount, 100, 10000);
+                    
+                    limitToXAxis = EditorGUILayout.Toggle(GetLocalizedText("limitToXAxis"), limitToXAxis);
+                    
+                    if (limitToXAxis)
+                    {
+                        EditorGUI.indentLevel++;
+                        xAxisThreshold = EditorGUILayout.FloatField(GetLocalizedText("xAxisCenter"), xAxisThreshold);
+                        EditorGUILayout.HelpBox(string.Format(GetLocalizedText("xAxisHelp"), xAxisThreshold), MessageType.Info);
+                        EditorGUI.indentLevel--;
+                    }
                     EditorGUI.indentLevel--;
                 }
             }
@@ -651,7 +657,7 @@ namespace VRChatAvatarTools
             else
             {
                 // Adjust height based on multi-selection mode
-                float scrollHeight = isMultiSelectionMode ? 150 : 30;
+                float scrollHeight = isMultiSelectionMode ? 150 : 0;
                 selectionScrollPos = EditorGUILayout.BeginScrollView(selectionScrollPos, GUILayout.Height(scrollHeight));
                 
                 for (int i = 0; i < meshSelections.Count; i++)
@@ -687,7 +693,7 @@ namespace VRChatAvatarTools
                 EditorGUILayout.Space();
             }
             
-            if (GUILayout.Button(GetLocalizedText("clearAllSelections")))
+            if (isMultiSelectionMode && GUILayout.Button(GetLocalizedText("clearAllSelections")))
             {
                 ClearAllSelections();
             }
@@ -761,10 +767,16 @@ namespace VRChatAvatarTools
             
             GUI.enabled = true;
             
+            // Check if current material is different from original
+            bool canReset = IsCurrentMaterialDifferentFromOriginal();
+            GUI.enabled = canReset;
+            
             if (GUILayout.Button(GetLocalizedText("resetToOriginal")))
             {
                 ResetToOriginal();
             }
+            
+            GUI.enabled = true;
             
             EditorGUILayout.Space();
             EditorGUILayout.LabelField(GetLocalizedText("textureOutput"), EditorStyles.boldLabel);
@@ -2348,6 +2360,27 @@ namespace VRChatAvatarTools
             }
         }
         
+        private bool IsCurrentMaterialDifferentFromOriginal()
+        {
+            if (targetMeshRenderer == null || originalMaterials == null)
+                return false;
+                
+            Material[] currentMaterials = targetMeshRenderer.sharedMaterials;
+            
+            // Check if arrays have different lengths
+            if (currentMaterials.Length != originalMaterials.Length)
+                return true;
+                
+            // Compare each material
+            for (int i = 0; i < currentMaterials.Length; i++)
+            {
+                if (currentMaterials[i] != originalMaterials[i])
+                    return true;
+            }
+            
+            return false;
+        }
+        
         
         private void SetupTempCollider()
         {
@@ -2747,9 +2780,9 @@ namespace VRChatAvatarTools
                     
                     // Actions
                     case "apply": return "アクション";
-                    case "textureOutput": return "テクスチャ出力";
+                    case "textureOutput": return "テクスチャだけ出力";
                     case "applyColor": return "適用";
-                    case "exportMaskTexture": return "マスクをエクスポート";
+                    case "exportMaskTexture": return "マスクテクスチャをエクスポート";
                     case "exportTexture": return "テクスチャをエクスポート";
                     case "resetToOriginal": return "オリジナルにリセット";
                     case "materialSafetyHint": return "💡 オリジナルのマテリアルは上書きされません。複製されたファイルは kokoa/GeneratedMaterials と kokoa/GeneratedTextures に保存されます。";
