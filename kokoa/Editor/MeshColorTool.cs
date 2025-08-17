@@ -40,6 +40,7 @@ namespace VRChatAvatarTools
         // Selection Settings
         private bool limitToXAxis = false;
         private float xAxisThreshold = 0.0f;
+        private int maxVertexCount = 1000;
         
         // Multiple selection support
         private List<MeshSelection> meshSelections = new List<MeshSelection>();
@@ -537,6 +538,8 @@ namespace VRChatAvatarTools
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField(GetLocalizedText("selectionSettings"), EditorStyles.miniBoldLabel);
                 
+                maxVertexCount = EditorGUILayout.IntSlider(GetLocalizedText("maxVertexCount"), maxVertexCount, 100, 10000);
+                
                 limitToXAxis = EditorGUILayout.Toggle(GetLocalizedText("limitToXAxis"), limitToXAxis);
                 
                 if (limitToXAxis)
@@ -864,7 +867,7 @@ namespace VRChatAvatarTools
                 int processedCount = 0;
                 bool isFirstVertex = true;
                 
-                while (queue.Count > 0 && processedCount < 1000)
+                while (queue.Count > 0 && processedCount < maxVertexCount)
                 {
                     processedCount++;
                     int currentVertex = queue.Dequeue();
@@ -2604,6 +2607,7 @@ namespace VRChatAvatarTools
                     case "clickAdd": return "クリック: 選択に追加 | Ctrl+クリック: 選択から削除";
                     case "clickNew": return "クリック: 新しいエリアを選択";
                     case "selectionSettings": return "選択設定";
+                    case "maxVertexCount": return "選択頂点数上限";
                     case "limitToXAxis": return "X軸の片側に制限";
                     case "xAxisCenter": return "X軸中心";
                     case "xAxisHelp": return "選択はX = {0}を越えません\nクリックした側のみが選択されます";
@@ -2690,6 +2694,7 @@ namespace VRChatAvatarTools
                     case "clickAdd": return "Click: Add to selection | Ctrl+Click: Remove from selection";
                     case "clickNew": return "Click: Select new area";
                     case "selectionSettings": return "Selection Settings";
+                    case "maxVertexCount": return "Max Vertex Count";
                     case "limitToXAxis": return "Limit to X-Axis Side";
                     case "xAxisCenter": return "X-Axis Center";
                     case "xAxisHelp": return "Selection will not cross X = {0}\nClick on either side to select that side only";
