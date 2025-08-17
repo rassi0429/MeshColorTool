@@ -44,10 +44,9 @@ namespace VRChatAvatarTools
         private enum BlendMode { Additive, Multiply, Color, Overlay }
         private BlendMode currentBlendMode = BlendMode.Color;
         
-        // History
+        // Original material and texture
         private Material originalMaterial;
         private Texture2D originalTexture;
-        private List<EditHistory> editHistories = new List<EditHistory>();
         
         // Safety component
         private MeshColorMaterialSafety currentSafety;
@@ -112,7 +111,6 @@ namespace VRChatAvatarTools
             availableRenderers = null;
             selectedRendererIndex = 0;
             originalRendererStates.Clear();
-            editHistories.Clear();
             debugInfo = "";
             
             // Reset selection mode
@@ -170,8 +168,6 @@ namespace VRChatAvatarTools
             EditorGUILayout.Space();
             DrawActions();
             
-            EditorGUILayout.Space();
-            DrawHistory();
             
             EditorGUILayout.Space();
             DrawDebugInfo();
@@ -590,34 +586,6 @@ namespace VRChatAvatarTools
             EditorGUILayout.EndVertical();
         }
         
-        private void DrawHistory()
-        {
-            EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField(GetLocalizedText("editHistory"), EditorStyles.boldLabel);
-            
-            if (editHistories.Count == 0)
-            {
-                EditorGUILayout.LabelField(GetLocalizedText("noEditsYet"));
-            }
-            else
-            {
-                for (int i = editHistories.Count - 1; i >= 0; i--)
-                {
-                    var history = editHistories[i];
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField($"{i + 1}. {history.timestamp}");
-                    
-                    if (GUILayout.Button(GetLocalizedText("revert"), GUILayout.Width(60)))
-                    {
-                        RevertToHistory(history);
-                    }
-                    
-                    EditorGUILayout.EndHorizontal();
-                }
-            }
-            
-            EditorGUILayout.EndVertical();
-        }
         
         private void DrawDebugInfo()
         {
@@ -1105,15 +1073,6 @@ namespace VRChatAvatarTools
             // Recreate safety component with the new material as the "original"
             SetupSafetyComponent();
             
-            EditHistory history = new EditHistory
-            {
-                timestamp = timestamp,
-                material = newMaterial,
-                texture = savedTexture,
-                selectedVertices = new HashSet<int>(selectedVertices)
-            };
-            
-            editHistories.Add(history);
             ClearAllSelections();
             
             debugInfo += $"\nTexture saved: {newTexturePath}\n";
@@ -1514,15 +1473,6 @@ namespace VRChatAvatarTools
             }
         }
         
-        private void RevertToHistory(EditHistory history)
-        {
-            if (targetMeshRenderer != null && history.material != null)
-            {
-                targetMeshRenderer.sharedMaterial = history.material;
-                selectedVertices = new HashSet<int>(history.selectedVertices);
-                SceneView.RepaintAll();
-            }
-        }
         
         private void SetupTempCollider()
         {
@@ -1823,14 +1773,6 @@ namespace VRChatAvatarTools
             debugInfo += "[Safety] Material safety component removed\n";
         }
         
-        [System.Serializable]
-        private class EditHistory
-        {
-            public string timestamp;
-            public Material material;
-            public Texture2D texture;
-            public HashSet<int> selectedVertices;
-        }
         
         [System.Serializable]
         private class MeshSelection
@@ -1915,10 +1857,6 @@ namespace VRChatAvatarTools
                     case "exportTexture": return "テクスチャをエクスポート";
                     case "resetToOriginal": return "オリジナルにリセット";
                     
-                    // History
-                    case "editHistory": return "編集履歴";
-                    case "noEditsYet": return "まだ編集がありません";
-                    case "revert": return "元に戻す";
                     
                     // Debug
                     case "debugInformation": return "デバッグ情報";
@@ -2004,10 +1942,6 @@ namespace VRChatAvatarTools
                     case "exportTexture": return "Export Texture";
                     case "resetToOriginal": return "Reset to Original";
                     
-                    // History
-                    case "editHistory": return "Edit History";
-                    case "noEditsYet": return "No edits yet";
-                    case "revert": return "Revert";
                     
                     // Debug
                     case "debugInformation": return "Debug Information";
