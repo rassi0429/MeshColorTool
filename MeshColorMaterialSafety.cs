@@ -14,7 +14,7 @@ namespace VRChatAvatarTools
     public class MeshColorMaterialSafety : MonoBehaviour
     {
         [SerializeField, HideInInspector]
-        private Material originalMaterial;
+        private Material[] originalMaterials; // 複数マテリアルに対応
         
         [SerializeField, HideInInspector]
         private SkinnedMeshRenderer targetRenderer;
@@ -31,11 +31,11 @@ namespace VRChatAvatarTools
         /// <summary>
         /// 編集開始時にセーフティコンポーネントを作成
         /// </summary>
-        public static MeshColorMaterialSafety CreateSafety(SkinnedMeshRenderer renderer, Material originalMat, string windowGUID)
+        public static MeshColorMaterialSafety CreateSafety(SkinnedMeshRenderer renderer, Material[] originalMats, string windowGUID)
         {
-            if (renderer == null || originalMat == null) 
+            if (renderer == null || originalMats == null || originalMats.Length == 0) 
             {
-                Debug.LogWarning("[MeshColorSafety] Cannot create safety: renderer or material is null");
+                Debug.LogWarning("[MeshColorSafety] Cannot create safety: renderer or materials array is null/empty");
                 return null;
             }
             
@@ -44,7 +44,14 @@ namespace VRChatAvatarTools
             
             // 新しいセーフティコンポーネントを追加
             MeshColorMaterialSafety safety = renderer.gameObject.AddComponent<MeshColorMaterialSafety>();
-            safety.originalMaterial = originalMat;
+            
+            // マテリアル配列をコピー
+            safety.originalMaterials = new Material[originalMats.Length];
+            for (int i = 0; i < originalMats.Length; i++)
+            {
+                safety.originalMaterials[i] = originalMats[i];
+            }
+            
             safety.targetRenderer = renderer;
             safety.isToolActive = true;
             safety.toolWindowGUID = windowGUID;
@@ -57,7 +64,11 @@ namespace VRChatAvatarTools
             // safety.hideFlags = HideFlags.HideInInspector;
             
             Debug.Log($"[MeshColorSafety] Safety component created for {renderer.name} on GameObject: {renderer.gameObject.name}");
-            Debug.Log($"[MeshColorSafety] Original material: {originalMat.name}");
+            Debug.Log($"[MeshColorSafety] Original materials saved: {originalMats.Length} materials");
+            for (int i = 0; i < originalMats.Length; i++)
+            {
+                Debug.Log($"[MeshColorSafety] Material[{i}]: {(originalMats[i] != null ? originalMats[i].name : "null")}");
+            }
             Debug.Log($"[MeshColorSafety] Component count on object: {renderer.gameObject.GetComponents<Component>().Length}");
             
             return safety;
@@ -135,10 +146,31 @@ namespace VRChatAvatarTools
         /// </summary>
         private void RestoreOriginalMaterial()
         {
-            if (targetRenderer != null && originalMaterial != null)
+            if (targetRenderer != null && originalMaterials != null && originalMaterials.Length > 0)
             {
-                targetRenderer.sharedMaterial = originalMaterial;
-                Debug.Log($"[MeshColorSafety] Material restored for {targetRenderer.name}");
+                Debug.Log($"[MeshColorSafety] Restoring {originalMaterials.Length} materials for {targetRenderer.name}");
+                
+                for (int i = 0; i < originalMaterials.Length; i++)
+                {
+                    Debug.Log($"[MeshColorSafety] Restoring material[{i}]: {(originalMaterials[i] != null ? originalMaterials[i].name : "null")}");
+                }
+                
+                if (originalMaterials.Length == 1)
+                {
+                    targetRenderer.sharedMaterial = originalMaterials[0];
+                    Debug.Log($"[MeshColorSafety] Single material restored: {(originalMaterials[0] != null ? originalMaterials[0].name : "null")}");
+                }
+                else
+                {
+                    targetRenderer.sharedMaterials = originalMaterials;
+                    Debug.Log($"[MeshColorSafety] Multiple materials restored");
+                }
+                
+                Debug.Log($"[MeshColorSafety] Materials restoration complete for {targetRenderer.name}");
+            }
+            else
+            {
+                Debug.LogWarning($"[MeshColorSafety] Cannot restore materials - targetRenderer: {(targetRenderer != null ? "OK" : "NULL")}, originalMaterials: {(originalMaterials != null ? originalMaterials.Length.ToString() : "NULL")}");
             }
         }
         
