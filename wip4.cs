@@ -26,6 +26,12 @@ namespace VRChatAvatarTools
         private int selectedRendererIndex = -1;
         private Dictionary<SkinnedMeshRenderer, bool> originalRendererStates = new Dictionary<SkinnedMeshRenderer, bool>();
         
+        // Mesh thumbnail cache
+        private Dictionary<Mesh, Texture2D> meshThumbnailCache = new Dictionary<Mesh, Texture2D>();
+        private const int thumbnailSize = 64;
+        private Vector2 meshRendererScrollPosition = Vector2.zero;
+        private bool showMeshRendererList = false;
+        
         // Selection
         private bool isSelectionMode = false;
         private bool isMultiSelectionMode = false;
@@ -110,6 +116,7 @@ namespace VRChatAvatarTools
             RemoveTempCollider();
             RestoreAllMeshes();
             RemoveSafetyComponent();
+            ClearMeshThumbnailCache();
         }
         
         private void ClearAvatarSelection()
@@ -347,27 +354,8 @@ namespace VRChatAvatarTools
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField(GetLocalizedText("selectMesh"), EditorStyles.boldLabel);
                 
-                string[] rendererNames = new string[availableRenderers.Length + 1];
-                rendererNames[0] = GetLocalizedText("selectMeshPrompt");
-                for (int i = 0; i < availableRenderers.Length; i++)
-                {
-                    rendererNames[i + 1] = $"{i}: {availableRenderers[i].name}";
-                    if (availableRenderers[i].sharedMesh != null)
-                    {
-                        rendererNames[i + 1] += $" ({availableRenderers[i].sharedMesh.name})";
-                    }
-                }
-                
-                EditorGUI.BeginChangeCheck();
-                int displayIndex = selectedRendererIndex + 1; // +1 because of the prompt at index 0
-                displayIndex = EditorGUILayout.Popup("Mesh Renderer", displayIndex, rendererNames);
-                selectedRendererIndex = displayIndex - 1; // Convert back to actual index
-                
-                if (EditorGUI.EndChangeCheck() && selectedRendererIndex >= 0)
-                {
-                    SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
-                    ClearAllSelections();
-                }
+                // 新しいサムネイル付きメッシュレンダラー選択UI
+                DrawMeshRendererWithThumbnails();
                 
                 EditorGUILayout.Space();
                 bool hideOthers = EditorGUILayout.Toggle(GetLocalizedText("hideOtherMeshes"), IsOtherMeshesHidden());
@@ -1429,6 +1417,160 @@ namespace VRChatAvatarTools
             RenderTexture.ReleaseTemporary(tmp);
             
             return readableTexture;
+        }
+        
+        private Texture2D GetMeshThumbnail(Mesh mesh)
+        {
+            if (mesh == null) return null;
+            
+            if (meshThumbnailCache.ContainsKey(mesh))
+            {
+                return meshThumbnailCache[mesh];
+            }
+            
+            Texture2D thumbnail = AssetPreview.GetAssetPreview(mesh);
+            if (thumbnail == null)
+            {
+                // AssetPreviewがまだ生成されていない場合、デフォルトのメッシュアイコンを使用
+                thumbnail = EditorGUIUtility.FindTexture("d_Mesh Icon");
+            }
+            
+            if (thumbnail != null)
+            {
+                // サムネイルをキャッシュサイズにリサイズ
+                Texture2D resizedThumbnail = new Texture2D(thumbnailSize, thumbnailSize, TextureFormat.ARGB32, false);
+                RenderTexture tmp = RenderTexture.GetTemporary(thumbnailSize, thumbnailSize, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
+                RenderTexture previous = RenderTexture.active;
+                RenderTexture.active = tmp;
+                
+                Graphics.Blit(thumbnail, tmp);
+                resizedThumbnail.ReadPixels(new Rect(0, 0, thumbnailSize, thumbnailSize), 0, 0);
+                resizedThumbnail.Apply();
+                
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(tmp);
+                
+                meshThumbnailCache[mesh] = resizedThumbnail;
+                return resizedThumbnail;
+            }
+            
+            return null;
+        }
+        
+        private void DrawMeshRendererWithThumbnails()
+        {
+            if (availableRenderers == null || availableRenderers.Length == 0) return;
+            
+            EditorGUILayout.LabelField("Mesh Renderer", EditorStyles.boldLabel);
+            
+            // 選択されたレンダラーの情報を表示
+            EditorGUILayout.BeginHorizontal();
+            
+            if (selectedRendererIndex >= 0 && selectedRendererIndex < availableRenderers.Length)
+            {
+                var selectedRenderer = availableRenderers[selectedRendererIndex];
+                Texture2D thumbnail = GetMeshThumbnail(selectedRenderer.sharedMesh);
+                
+                if (thumbnail != null)
+                {
+                    GUILayout.Label(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
+                }
+                
+                EditorGUILayout.BeginVertical();
+                EditorGUILayout.LabelField($"選択中: {selectedRenderer.name}");
+                if (selectedRenderer.sharedMesh != null)
+                {
+                    EditorGUILayout.LabelField($"メッシュ: {selectedRenderer.sharedMesh.name}");
+                    EditorGUILayout.LabelField($"頂点数: {selectedRenderer.sharedMesh.vertexCount}");
+                }
+                EditorGUILayout.EndVertical();
+            }
+            else
+            {
+                EditorGUILayout.LabelField("メッシュレンダラーを選択してください");
+            }
+            
+            GUILayout.FlexibleSpace();
+            
+            // 変更ボタン
+            if (GUILayout.Button("変更", GUILayout.Width(60)))
+            {
+                showMeshRendererList = !showMeshRendererList;
+            }
+            
+            EditorGUILayout.EndHorizontal();
+            
+            // リストの表示・非表示
+            if (showMeshRendererList)
+            {
+                EditorGUILayout.Space();
+                EditorGUILayout.LabelField("利用可能なメッシュレンダラー:", EditorStyles.boldLabel);
+                
+                meshRendererScrollPosition = EditorGUILayout.BeginScrollView(meshRendererScrollPosition, GUILayout.Height(200));
+                
+                for (int i = 0; i < availableRenderers.Length; i++)
+                {
+                    var renderer = availableRenderers[i];
+                    Texture2D thumbnail = GetMeshThumbnail(renderer.sharedMesh);
+                    
+                    EditorGUILayout.BeginHorizontal();
+                    
+                    // 選択ボタン
+                    bool isSelected = (selectedRendererIndex == i);
+                    Color originalColor = GUI.backgroundColor;
+                    if (isSelected)
+                    {
+                        GUI.backgroundColor = Color.cyan;
+                    }
+                    
+                    if (GUILayout.Button("選択", GUILayout.Width(50)))
+                    {
+                        selectedRendererIndex = i;
+                        SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
+                        ClearAllSelections();
+                        showMeshRendererList = false; // 選択後にリストを閉じる
+                    }
+                    
+                    GUI.backgroundColor = originalColor;
+                    
+                    // サムネイル表示
+                    if (thumbnail != null)
+                    {
+                        GUILayout.Label(thumbnail, GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
+                    }
+                    else
+                    {
+                        GUILayout.Label("", GUILayout.Width(thumbnailSize), GUILayout.Height(thumbnailSize));
+                    }
+                    
+                    // メッシュ情報
+                    EditorGUILayout.BeginVertical();
+                    EditorGUILayout.LabelField($"{i}: {renderer.name}");
+                    if (renderer.sharedMesh != null)
+                    {
+                        EditorGUILayout.LabelField($"メッシュ: {renderer.sharedMesh.name}");
+                        EditorGUILayout.LabelField($"頂点数: {renderer.sharedMesh.vertexCount}");
+                    }
+                    EditorGUILayout.EndVertical();
+                    
+                    EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.Space(5);
+                }
+                
+                EditorGUILayout.EndScrollView();
+            }
+        }
+        
+        private void ClearMeshThumbnailCache()
+        {
+            foreach (var thumbnail in meshThumbnailCache.Values)
+            {
+                if (thumbnail != null)
+                {
+                    DestroyImmediate(thumbnail);
+                }
+            }
+            meshThumbnailCache.Clear();
         }
         
         private Texture2D CreateModifiedTextureWithAllSelections()
