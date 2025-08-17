@@ -25,6 +25,11 @@ namespace VRChatAvatarTools
         private int selectedRendererIndex = -1;
         private Dictionary<SkinnedMeshRenderer, bool> originalRendererStates = new Dictionary<SkinnedMeshRenderer, bool>();
         
+        // Highlight functionality
+        private SkinnedMeshRenderer highlightedRenderer;
+        private Material highlightMaterial;
+        private Material[] originalHighlightMaterials;
+        
         // Mesh thumbnail cache
         private Dictionary<Mesh, Texture2D> meshThumbnailCache = new Dictionary<Mesh, Texture2D>();
         private const int thumbnailSize = 64;
@@ -108,8 +113,16 @@ namespace VRChatAvatarTools
             CleanupPreview();
             RemoveTempCollider();
             RestoreAllMeshes();
+            RemoveHighlight();
             RemoveSafetyComponent();
             ClearMeshThumbnailCache();
+            
+            // ハイライトマテリアルのクリーンアップ
+            if (highlightMaterial != null)
+            {
+                DestroyImmediate(highlightMaterial);
+                highlightMaterial = null;
+            }
         }
         
         private void ClearAvatarSelection()
@@ -489,6 +502,68 @@ namespace VRChatAvatarTools
             }
             
             SceneView.RepaintAll();
+        }
+        
+        private void HighlightMeshRenderer(SkinnedMeshRenderer renderer)
+        {
+            // 既存のハイライトを削除
+            RemoveHighlight();
+            
+            if (renderer == null) return;
+            
+            highlightedRenderer = renderer;
+            originalHighlightMaterials = renderer.sharedMaterials;
+            
+            // ハイライト用マテリアルを作成（奥にあっても見えるように設定）
+            if (highlightMaterial == null)
+            {
+                // Unlitシェーダーを使用してライティングに影響されないようにする
+                highlightMaterial = new Material(Shader.Find("Unlit/Color"));
+                highlightMaterial.color = new Color(1f, 1f, 0f, 0.8f); // 半透明の黄色
+                
+                // 奥にあっても見えるようにZTestを変更
+                highlightMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+                highlightMaterial.SetOverrideTag("RenderType", "Transparent");
+                highlightMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                highlightMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                highlightMaterial.SetInt("_ZWrite", 0);
+                highlightMaterial.renderQueue = 5000; // より高い優先度で描画
+                
+                // シェーダーキーワードの設定
+                highlightMaterial.DisableKeyword("_ALPHATEST_ON");
+                highlightMaterial.EnableKeyword("_ALPHABLEND_ON");
+                highlightMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            }
+            
+            // ハイライトマテリアルを適用
+            Material[] highlightMaterials = new Material[originalHighlightMaterials.Length];
+            for (int i = 0; i < highlightMaterials.Length; i++)
+            {
+                highlightMaterials[i] = highlightMaterial;
+            }
+            renderer.sharedMaterials = highlightMaterials;
+            
+            // 3秒後にハイライトを削除（少し長めに）
+            EditorApplication.delayCall += () => {
+                EditorApplication.delayCall += () => {
+                    EditorApplication.delayCall += () => {
+                        EditorApplication.delayCall += RemoveHighlight;
+                    };
+                };
+            };
+            
+            SceneView.RepaintAll();
+        }
+        
+        private void RemoveHighlight()
+        {
+            if (highlightedRenderer != null && originalHighlightMaterials != null)
+            {
+                highlightedRenderer.sharedMaterials = originalHighlightMaterials;
+                highlightedRenderer = null;
+                originalHighlightMaterials = null;
+                SceneView.RepaintAll();
+            }
         }
         
         private void DrawSelectionMode()
@@ -1548,24 +1623,6 @@ namespace VRChatAvatarTools
                     
                     EditorGUILayout.BeginHorizontal();
                     
-                    // 選択ボタン
-                    bool isSelected = (selectedRendererIndex == i);
-                    Color originalColor = GUI.backgroundColor;
-                    if (isSelected)
-                    {
-                        GUI.backgroundColor = Color.cyan;
-                    }
-                    
-                    if (GUILayout.Button("選択", GUILayout.Width(50)))
-                    {
-                        selectedRendererIndex = i;
-                        SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
-                        ClearAllSelections();
-                        showMeshRendererList = false; // 選択後にリストを閉じる
-                    }
-                    
-                    GUI.backgroundColor = originalColor;
-                    
                     // サムネイル表示
                     if (thumbnail != null)
                     {
@@ -1584,6 +1641,42 @@ namespace VRChatAvatarTools
                         EditorGUILayout.LabelField($"メッシュ: {renderer.sharedMesh.name}");
                         EditorGUILayout.LabelField($"頂点数: {renderer.sharedMesh.vertexCount}");
                     }
+                    EditorGUILayout.EndVertical();
+                    
+                    // 右側にボタンを配置
+                    GUILayout.FlexibleSpace();
+                    
+                    EditorGUILayout.BeginVertical(GUILayout.Width(80));
+                    
+                    // 選択ボタン
+                    bool isSelected = (selectedRendererIndex == i);
+                    Color originalColor = GUI.backgroundColor;
+                    if (isSelected)
+                    {
+                        GUI.backgroundColor = Color.cyan;
+                    }
+                    
+                    if (GUILayout.Button("選択", GUILayout.Width(80)))
+                    {
+                        selectedRendererIndex = i;
+                        SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
+                        ClearAllSelections();
+                        showMeshRendererList = false; // 選択後にリストを閉じる
+                    }
+                    
+                    GUI.backgroundColor = Color.yellow;
+                    
+                    GUIContent highlightContent = EditorGUIUtility.IconContent("Lighting");
+                    highlightContent.text = " 光らせる";
+                    highlightContent.tooltip = "メッシュを一時的にハイライト表示します";
+                    
+                    if (GUILayout.Button(highlightContent, GUILayout.Width(80)))
+                    {
+                        HighlightMeshRenderer(renderer);
+                    }
+                    
+                    GUI.backgroundColor = originalColor;
+                    
                     EditorGUILayout.EndVertical();
                     
                     EditorGUILayout.EndHorizontal();
