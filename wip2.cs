@@ -10,7 +10,7 @@ namespace VRChatAvatarTools
     {
         // Language settings
         private enum Language { English, Japanese }
-        private Language currentLanguage = Language.English;
+        private Language currentLanguage = Language.Japanese;
         
         // Target mesh
         private GameObject targetAvatar;
@@ -39,8 +39,8 @@ namespace VRChatAvatarTools
         private Vector2 selectionScrollPos;
         
         // Editing
-        private Color blendColor = new Color(0.5f, 0.5f, 0.5f, 1f);
-        private float blendStrength = 0.5f;
+        private Color blendColor = new Color(1f, 0.5f, 0.5f, 1f);
+        private float blendStrength = 1f;
         private enum BlendMode { Additive, Multiply, Color, Overlay }
         private BlendMode currentBlendMode = BlendMode.Color;
         
@@ -276,18 +276,18 @@ namespace VRChatAvatarTools
                 EditorGUILayout.LabelField(GetLocalizedText("vertices") + targetMesh.vertexCount);
                 EditorGUILayout.LabelField(GetLocalizedText("material") + (originalMaterial != null ? originalMaterial.name : "None"));
 
-                if (originalTexture != null)
-                {
-                    // 絶対コピーするので出さない
-                    // bool isReadable = IsTextureReadable(originalTexture);
-                    // EditorGUILayout.LabelField(GetLocalizedText("textureReadable") + (isReadable ? GetLocalizedText("yes") : GetLocalizedText("no")), 
-                    //     isReadable ? EditorStyles.miniLabel : EditorStyles.miniBoldLabel);
-                }
+                // if (originalTexture != null)
+                // {
+                //     // 絶対コピーするので出さない
+                //     // bool isReadable = IsTextureReadable(originalTexture);
+                //     // EditorGUILayout.LabelField(GetLocalizedText("textureReadable") + (isReadable ? GetLocalizedText("yes") : GetLocalizedText("no")), 
+                //     //     isReadable ? EditorStyles.miniLabel : EditorStyles.miniBoldLabel);
+                // }
                 
-                if (tempCollider != null)
-                {
-                    EditorGUILayout.LabelField(GetLocalizedText("statusColliderReady"), EditorStyles.miniLabel);
-                }
+                // if (tempCollider != null)
+                // {
+                //     EditorGUILayout.LabelField(GetLocalizedText("statusColliderReady"), EditorStyles.miniLabel);
+                // }
             }
             
             EditorGUILayout.EndVertical();
@@ -441,13 +441,13 @@ namespace VRChatAvatarTools
                 ClearAllSelections();
             }
             
-            if (targetMeshRenderer != null && tempCollider == null)
-            {
-                if (GUILayout.Button(GetLocalizedText("setupCollider")))
-                {
-                    SetupTempCollider();
-                }
-            }
+            // if (targetMeshRenderer != null && tempCollider == null)
+            // {
+            //     if (GUILayout.Button(GetLocalizedText("setupCollider")))
+            //     {
+            //         SetupTempCollider();
+            //     }
+            // }
             
             EditorGUILayout.EndVertical();
         }
@@ -1791,12 +1791,12 @@ namespace VRChatAvatarTools
                 switch (key)
                 {
                     // Main window
-                    case "title": return "VRChat メッシュカラーエディター";
-                    case "noRenderer": return "SkinnedMeshRendererを持つアバターを選択してください";
+                    case "title": return "Nesh Color Editor";
+                    case "noRenderer": return "アバターを選択してください";
                     
                     // Target selection
-                    case "targetMesh": return "ターゲットメッシュ";
-                    case "avatar": return "アバター";
+                    case "targetMesh": return "1.アバターの選択";
+                    case "avatar": return "アバターを選択";
                     case "clear": return "クリア";
                     case "selectMesh": return "メッシュを選択:";
                     case "hideOtherMeshes": return "他のメッシュを隠す";
@@ -1810,7 +1810,7 @@ namespace VRChatAvatarTools
                     case "statusColliderReady": return "ステータス: コライダー準備完了";
                     
                     // Selection mode
-                    case "meshSelection": return "メッシュ選択";
+                    case "meshSelection": return "2.色を変えるメッシュ選択";
                     case "selectionMode": return "選択モード";
                     case "multiSelectionMode": return "複数選択モード";
                     case "clickAdd": return "クリック: 選択に追加 | Ctrl+クリック: 選択から削除";
@@ -1824,14 +1824,14 @@ namespace VRChatAvatarTools
                     case "setupCollider": return "コライダーをセットアップ (デバッグ)";
                     
                     // Selection list
-                    case "meshSelections": return "メッシュ選択";
+                    case "meshSelections": return "選択されたメッシュ";
                     case "noAreasSelected": return "選択されたエリアはありません";
                     case "area": return "エリア";
                     case "verts": return "頂点";
                     
                     // Color settings
-                    case "colorSettings": return "カラー設定";
-                    case "blendColor": return "ブレンドカラー";
+                    case "colorSettings": return "3.色設定";
+                    case "blendColor": return "色";
                     case "strength": return "強度";
                     case "blendMode": return "ブレンドモード";
                     case "showPreview": return "プレビューを表示";
@@ -1839,12 +1839,12 @@ namespace VRChatAvatarTools
                     // Blend modes
                     case "additiveDesc": return "色値を加算（明るくする）";
                     case "multiplyDesc": return "色値を乗算（暗くする）";
-                    case "colorDesc": return "輝度を保持しながら色相と彩度を適用（Photoshopカラーモード）";
+                    case "colorDesc": return "輝度を保持しながら色相と彩度を適用（Photoshopのカラーモード）";
                     case "overlayDesc": return "ベース色に基づいて乗算とスクリーンを組み合わせる";
                     
                     // Actions
                     case "actions": return "アクション";
-                    case "applyColor": return "カラーを適用";
+                    case "applyColor": return "色をマテリアルに適用";
                     case "exportMaskTexture": return "マスクテクスチャをエクスポート";
                     case "resetToOriginal": return "オリジナルにリセット";
                     
