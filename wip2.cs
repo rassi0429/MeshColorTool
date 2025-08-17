@@ -65,7 +65,7 @@ namespace VRChatAvatarTools
         private bool lastRaycastHit = false;
         private bool showDebugInfo = false;
         
-        [MenuItem("VRChat Avatar Tools/Mesh Color Editor")]
+        [MenuItem("Tools/Mesh Color Editor")]
         public static void ShowWindow()
         {
             MeshColorEditorWindow window = GetWindow<MeshColorEditorWindow>();
@@ -568,10 +568,17 @@ namespace VRChatAvatarTools
                 ApplyColorToSelection();
             }
             
+            EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button(GetLocalizedText("exportMaskTexture"), GUILayout.Height(30)))
             {
                 ExportMaskTexture();
             }
+            
+            if (GUILayout.Button(GetLocalizedText("exportTexture"), GUILayout.Height(30)))
+            {
+                ExportTexture();
+            }
+            EditorGUILayout.EndHorizontal();
             
             GUI.enabled = true;
             
@@ -1043,11 +1050,11 @@ namespace VRChatAvatarTools
             RemovePreview();
             
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string newTexturePath = $"Assets/GeneratedTextures/{originalTexture.name}_edited_{timestamp}.png";
+            string newTexturePath = $"Assets/kokoa/GeneratedTextures/{originalTexture.name}_edited_{timestamp}.png";
             
-            if (!AssetDatabase.IsValidFolder("Assets/GeneratedTextures"))
+            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedTextures"))
             {
-                AssetDatabase.CreateFolder("Assets", "GeneratedTextures");
+                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedTextures");
             }
             
             Texture2D newTexture = CreateModifiedTextureWithAllSelections();
@@ -1074,11 +1081,11 @@ namespace VRChatAvatarTools
             
             Texture2D savedTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(newTexturePath);
             
-            string newMaterialPath = $"Assets/GeneratedMaterials/{originalMaterial.name}_edited_{timestamp}.mat";
+            string newMaterialPath = $"Assets/kokoa/GeneratedMaterials/{originalMaterial.name}_edited_{timestamp}.mat";
             
-            if (!AssetDatabase.IsValidFolder("Assets/GeneratedMaterials"))
+            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedMaterials"))
             {
-                AssetDatabase.CreateFolder("Assets", "GeneratedMaterials");
+                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedMaterials");
             }
             
             Material newMaterial = new Material(originalMaterial);
@@ -1087,7 +1094,16 @@ namespace VRChatAvatarTools
             AssetDatabase.CreateAsset(newMaterial, newMaterialPath);
             AssetDatabase.SaveAssets();
             
+            // Remove safety component temporarily to allow material change
+            RemoveSafetyComponent();
+            
             targetMeshRenderer.sharedMaterial = newMaterial;
+            
+            // Update the original material reference to the new material
+            originalMaterial = newMaterial;
+            
+            // Recreate safety component with the new material as the "original"
+            SetupSafetyComponent();
             
             EditHistory history = new EditHistory
             {
@@ -1102,6 +1118,7 @@ namespace VRChatAvatarTools
             
             debugInfo += $"\nTexture saved: {newTexturePath}\n";
             debugInfo += $"Material saved: {newMaterialPath}\n";
+            debugInfo += $"Material applied and Safety component updated\n";
         }
         
         private bool IsTextureReadable(Texture2D texture)
@@ -1320,11 +1337,11 @@ namespace VRChatAvatarTools
             RemovePreview();
             
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string maskTexturePath = $"Assets/GeneratedTextures/{originalTexture.name}_mask_{timestamp}.png";
+            string maskTexturePath = $"Assets/kokoa/GeneratedTextures/{originalTexture.name}_mask_{timestamp}.png";
             
-            if (!AssetDatabase.IsValidFolder("Assets/GeneratedTextures"))
+            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedTextures"))
             {
-                AssetDatabase.CreateFolder("Assets", "GeneratedTextures");
+                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedTextures");
             }
             
             Texture2D maskTexture = CreateMaskTexture();
@@ -1353,6 +1370,49 @@ namespace VRChatAvatarTools
             
             EditorUtility.DisplayDialog(GetLocalizedText("maskExportComplete"), 
                 string.Format(GetLocalizedText("maskExportMsg"), maskTexturePath), 
+                GetLocalizedText("ok"));
+        }
+        
+        private void ExportTexture()
+        {
+            if (originalTexture == null || meshSelections.Count == 0) return;
+            
+            RemovePreview();
+            
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string texturePath = $"Assets/kokoa/GeneratedTextures/{originalTexture.name}_exported_{timestamp}.png";
+            
+            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedTextures"))
+            {
+                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedTextures");
+            }
+            
+            Texture2D exportTexture = CreateModifiedTextureWithAllSelections();
+            
+            if (exportTexture == null)
+            {
+                EditorUtility.DisplayDialog(GetLocalizedText("error"), GetLocalizedText("textureCreateError"), GetLocalizedText("ok"));
+                return;
+            }
+            
+            byte[] pngData = exportTexture.EncodeToPNG();
+            System.IO.File.WriteAllBytes(texturePath, pngData);
+            AssetDatabase.Refresh();
+            
+            TextureImporter importer = AssetImporter.GetAtPath(texturePath) as TextureImporter;
+            if (importer != null)
+            {
+                importer.textureType = TextureImporterType.Default;
+                importer.sRGBTexture = true;
+                importer.textureCompression = TextureImporterCompression.Uncompressed;
+                importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
+                importer.SaveAndReimport();
+            }
+            
+            debugInfo += $"\nTexture exported: {texturePath}\n";
+            
+            EditorUtility.DisplayDialog(GetLocalizedText("textureExportComplete"), 
+                string.Format(GetLocalizedText("textureExportMsg"), texturePath), 
                 GetLocalizedText("ok"));
         }
         
@@ -1851,7 +1911,8 @@ namespace VRChatAvatarTools
                     // Actions
                     case "actions": return "アクション";
                     case "applyColor": return "色をマテリアルに適用";
-                    case "exportMaskTexture": return "マスクテクスチャをエクスポート";
+                    case "exportMaskTexture": return "マスクをエクスポート";
+                    case "exportTexture": return "テクスチャをエクスポート";
                     case "resetToOriginal": return "オリジナルにリセット";
                     
                     // History
@@ -1870,6 +1931,8 @@ namespace VRChatAvatarTools
                     case "textureCreateError": return "テクスチャの作成に失敗しました。元のテクスチャで読み取り/書き込みが有効になっているか確認してください。";
                     case "maskExportComplete": return "マスクエクスポート完了";
                     case "maskExportMsg": return "マスクテクスチャがエクスポートされました:\n{0}\n\n白い領域は選択された領域、黒い領域は未選択を表します。";
+                    case "textureExportComplete": return "テクスチャエクスポート完了";
+                    case "textureExportMsg": return "テクスチャがエクスポートされました:\n{0}";
                     case "ok": return "OK";
                     
                     default: return key;
@@ -1937,7 +2000,8 @@ namespace VRChatAvatarTools
                     // Actions
                     case "actions": return "Actions";
                     case "applyColor": return "Apply Color";
-                    case "exportMaskTexture": return "Export Mask Texture";
+                    case "exportMaskTexture": return "Export Mask";
+                    case "exportTexture": return "Export Texture";
                     case "resetToOriginal": return "Reset to Original";
                     
                     // History
@@ -1956,6 +2020,8 @@ namespace VRChatAvatarTools
                     case "textureCreateError": return "Failed to create texture. Please check if the original texture has Read/Write enabled.";
                     case "maskExportComplete": return "Mask Export Complete";
                     case "maskExportMsg": return "Mask texture has been exported to:\n{0}\n\nWhite areas represent selected regions, black areas are unselected.";
+                    case "textureExportComplete": return "Texture Export Complete";
+                    case "textureExportMsg": return "Texture has been exported to:\n{0}";
                     case "ok": return "OK";
                     
                     default: return key;
