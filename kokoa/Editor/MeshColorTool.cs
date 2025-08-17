@@ -1018,7 +1018,11 @@ namespace VRChatAvatarTools
             if (targetMeshRenderer == null) return;
             
             Transform meshTransform = targetMeshRenderer.transform;
-            Vector3[] vertices = targetMesh.vertices;
+            
+            // ブレンドシェイプが適用された後の頂点位置を取得
+            Mesh bakedMesh = new Mesh();
+            targetMeshRenderer.BakeMesh(bakedMesh);
+            Vector3[] vertices = bakedMesh.vertices;
             
             for (int i = 0; i < meshSelections.Count; i++)
             {
