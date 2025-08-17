@@ -48,6 +48,11 @@ namespace VRChatAvatarTools
         private Material originalMaterial;
         private Texture2D originalTexture;
         
+        // Multiple materials support
+        private Material[] availableMaterials;
+        private Material[] originalMaterials; // 元のマテリアル配列全体を保存
+        private int selectedMaterialIndex = -1;
+        
         // Safety component
         private MeshColorMaterialSafety currentSafety;
         private string windowGUID;
@@ -81,6 +86,14 @@ namespace VRChatAvatarTools
         private void OnDisable()
         {
             SceneView.duringSceneGui -= OnSceneGUI;
+            
+            // Restore original materials if needed
+            if (targetMeshRenderer != null && originalMaterials != null)
+            {
+                targetMeshRenderer.sharedMaterials = originalMaterials;
+                debugInfo += "[OnDisable] Restored all materials\n";
+            }
+            
             CleanupPreview();
             RemoveTempCollider();
             RestoreAllMeshes();
@@ -89,10 +102,11 @@ namespace VRChatAvatarTools
         
         private void ClearAvatarSelection()
         {
-            // Restore original material if needed
-            if (targetMeshRenderer != null && originalMaterial != null)
+            // Restore original materials if needed
+            if (targetMeshRenderer != null && originalMaterials != null)
             {
-                targetMeshRenderer.sharedMaterial = originalMaterial;
+                targetMeshRenderer.sharedMaterials = originalMaterials;
+                debugInfo += "[Clear] Restored all materials\n";
             }
             
             // Clean up everything
@@ -110,6 +124,9 @@ namespace VRChatAvatarTools
             originalTexture = null;
             availableRenderers = null;
             selectedRendererIndex = -1;
+            availableMaterials = null;
+            originalMaterials = null;
+            selectedMaterialIndex = -1;
             originalRendererStates.Clear();
             debugInfo = "";
             
@@ -276,7 +293,35 @@ namespace VRChatAvatarTools
                 EditorGUILayout.LabelField(GetLocalizedText("meshInfo"), EditorStyles.boldLabel);
                 EditorGUILayout.LabelField(GetLocalizedText("mesh") + targetMesh.name);
                 EditorGUILayout.LabelField(GetLocalizedText("vertices") + targetMesh.vertexCount);
-                EditorGUILayout.LabelField(GetLocalizedText("material") + (originalMaterial != null ? originalMaterial.name : "None"));
+                
+                // Material selection if multiple materials exist
+                if (availableMaterials != null && availableMaterials.Length > 1)
+                {
+                    EditorGUILayout.Space();
+                    EditorGUILayout.LabelField(GetLocalizedText("selectMaterial"), EditorStyles.boldLabel);
+                    
+                    string[] materialNames = new string[availableMaterials.Length + 1];
+                    materialNames[0] = GetLocalizedText("selectMaterialPrompt");
+                    for (int i = 0; i < availableMaterials.Length; i++)
+                    {
+                        materialNames[i + 1] = $"{i}: {(availableMaterials[i] != null ? availableMaterials[i].name : "None")}";
+                    }
+                    
+                    EditorGUI.BeginChangeCheck();
+                    int displayIndex = selectedMaterialIndex + 1; // +1 because of the prompt at index 0
+                    displayIndex = EditorGUILayout.Popup(GetLocalizedText("material"), displayIndex, materialNames);
+                    selectedMaterialIndex = displayIndex - 1; // Convert back to actual index
+                    
+                    if (EditorGUI.EndChangeCheck() && selectedMaterialIndex >= 0)
+                    {
+                        SelectMaterial(selectedMaterialIndex);
+                        ClearAllSelections();
+                    }
+                }
+                else
+                {
+                    EditorGUILayout.LabelField(GetLocalizedText("material") + (originalMaterial != null ? originalMaterial.name : "None"));
+                }
 
                 // if (originalTexture != null)
                 // {
@@ -297,10 +342,11 @@ namespace VRChatAvatarTools
         
         private void SelectMeshRenderer(SkinnedMeshRenderer renderer)
         {
-            // Restore the previous mesh's material before switching
-            if (targetMeshRenderer != null && originalMaterial != null)
+            // Restore the previous mesh's materials before switching
+            if (targetMeshRenderer != null && originalMaterials != null)
             {
-                targetMeshRenderer.sharedMaterial = originalMaterial;
+                targetMeshRenderer.sharedMaterials = originalMaterials;
+                debugInfo += "[SelectRenderer] Restored previous materials\n";
                 RemovePreview();
             }
             
@@ -311,21 +357,70 @@ namespace VRChatAvatarTools
             if (targetMeshRenderer != null)
             {
                 targetMesh = targetMeshRenderer.sharedMesh;
-                originalMaterial = targetMeshRenderer.sharedMaterial;
                 
-                if (originalMaterial != null && originalMaterial.mainTexture != null)
+                // Save original materials array (make a copy)
+                Material[] currentMaterials = targetMeshRenderer.sharedMaterials;
+                originalMaterials = new Material[currentMaterials.Length];
+                for (int i = 0; i < currentMaterials.Length; i++)
                 {
-                    originalTexture = originalMaterial.mainTexture as Texture2D;
-                    
-                    if (!IsTextureReadable(originalTexture))
-                    {
-                        debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
-                    }
+                    originalMaterials[i] = currentMaterials[i];
                 }
                 
-                SetupSafetyComponent();
+                // Get all materials for selection
+                availableMaterials = currentMaterials;
+                selectedMaterialIndex = -1; // Reset selection
+                originalMaterial = null;
+                originalTexture = null;
+                
+                debugInfo += $"[SelectRenderer] Saved {originalMaterials.Length} original materials\n";
+                
+                // If only one material, select it automatically
+                if (availableMaterials.Length == 1)
+                {
+                    SelectMaterial(0);
+                }
+                
                 SetupTempCollider();
             }
+        }
+        
+        private void SelectMaterial(int materialIndex)
+        {
+            if (availableMaterials == null || materialIndex < 0 || materialIndex >= availableMaterials.Length)
+                return;
+                
+            // Restore the previous material if any (from original materials array)
+            if (selectedMaterialIndex >= 0 && originalMaterials != null && selectedMaterialIndex < originalMaterials.Length)
+            {
+                Material[] materials = targetMeshRenderer.sharedMaterials;
+                materials[selectedMaterialIndex] = originalMaterials[selectedMaterialIndex];
+                targetMeshRenderer.sharedMaterials = materials;
+                debugInfo += $"[SelectMaterial] Restored material at index {selectedMaterialIndex}\n";
+                RemovePreview();
+            }
+            
+            RemoveSafetyComponent();
+            
+            selectedMaterialIndex = materialIndex;
+            originalMaterial = originalMaterials[materialIndex]; // Use original materials array
+            
+            if (originalMaterial != null && originalMaterial.mainTexture != null)
+            {
+                originalTexture = originalMaterial.mainTexture as Texture2D;
+                
+                if (!IsTextureReadable(originalTexture))
+                {
+                    debugInfo += "Original texture is not readable. Will create a copy when needed.\n";
+                }
+            }
+            else
+            {
+                originalTexture = null;
+            }
+            
+            debugInfo += $"[SelectMaterial] Selected material {materialIndex}: {(originalMaterial != null ? originalMaterial.name : "null")}\n";
+            
+            SetupSafetyComponent();
         }
         
         private bool IsOtherMeshesHidden()
@@ -1074,7 +1169,20 @@ namespace VRChatAvatarTools
             // Remove safety component temporarily to allow material change
             RemoveSafetyComponent();
             
-            targetMeshRenderer.sharedMaterial = newMaterial;
+            // Apply the new material to the correct slot
+            if (selectedMaterialIndex >= 0 && availableMaterials != null && selectedMaterialIndex < availableMaterials.Length)
+            {
+                Material[] materials = targetMeshRenderer.sharedMaterials;
+                materials[selectedMaterialIndex] = newMaterial;
+                targetMeshRenderer.sharedMaterials = materials;
+                availableMaterials[selectedMaterialIndex] = newMaterial;
+                // Update the original materials array as well (this becomes the new "original")
+                originalMaterials[selectedMaterialIndex] = newMaterial;
+            }
+            else
+            {
+                targetMeshRenderer.sharedMaterial = newMaterial;
+            }
             
             // Update the original material reference to the new material
             originalMaterial = newMaterial;
@@ -1549,16 +1657,32 @@ namespace VRChatAvatarTools
             previewTexture = CreateModifiedTextureWithAllSelections();
             previewMaterial.mainTexture = previewTexture;
             
-            targetMeshRenderer.sharedMaterial = previewMaterial;
+            // Apply preview to the correct material slot
+            if (selectedMaterialIndex >= 0 && availableMaterials != null && selectedMaterialIndex < availableMaterials.Length)
+            {
+                Material[] materials = targetMeshRenderer.sharedMaterials;
+                materials[selectedMaterialIndex] = previewMaterial;
+                targetMeshRenderer.sharedMaterials = materials;
+            }
+            else
+            {
+                targetMeshRenderer.sharedMaterial = previewMaterial;
+            }
             
             debugInfo += "Preview updated\n";
         }
         
         private void RemovePreview()
         {
-            if (targetMeshRenderer != null && originalMaterial != null)
+            if (targetMeshRenderer != null && originalMaterials != null && selectedMaterialIndex >= 0)
             {
-                targetMeshRenderer.sharedMaterial = originalMaterial;
+                Material[] materials = targetMeshRenderer.sharedMaterials;
+                if (selectedMaterialIndex < originalMaterials.Length)
+                {
+                    materials[selectedMaterialIndex] = originalMaterials[selectedMaterialIndex];
+                    targetMeshRenderer.sharedMaterials = materials;
+                    debugInfo += $"[RemovePreview] Restored material at index {selectedMaterialIndex}\n";
+                }
             }
             
             if (previewTexture != null)
@@ -1809,8 +1933,8 @@ namespace VRChatAvatarTools
                     case "noRenderer": return "アバターを選択してください";
                     
                     // Target selection
-                    case "targetMesh": return "1.アバターの選択";
-                    case "avatar": return "アバターまたはGameObjectを選択";
+                    case "targetMesh": return "1.アバターの選択(GameObject)";
+                    case "avatar": return "アバターを選択";
                     case "clear": return "クリア";
                     case "selectMesh": return "メッシュを選択:";
                     case "selectMeshPrompt": return "メッシュを選択してください";
@@ -1819,6 +1943,8 @@ namespace VRChatAvatarTools
                     case "mesh": return "メッシュ: ";
                     case "vertices": return "頂点数: ";
                     case "material": return "マテリアル: ";
+                    case "selectMaterial": return "マテリアルを選択:";
+                    case "selectMaterialPrompt": return "マテリアルを選択してください";
                     case "textureReadable": return "テクスチャ読み取り可能: ";
                     case "yes": return "はい";
                     case "no": return "いいえ (コピーします)";
@@ -1892,12 +2018,12 @@ namespace VRChatAvatarTools
                 switch (key)
                 {
                     // Main window
-                    case "title": return "VRChat Mesh Color Editor";
-                    case "noRenderer": return "Please select an avatar with SkinnedMeshRenderer";
+                    case "title": return "Mesh Color Editor";
+                    case "noRenderer": return "Please select an avatar";
                     
                     // Target selection
-                    case "targetMesh": return "Target Mesh";
-                    case "avatar": return "Avatar";
+                    case "targetMesh": return "1. Avatar Selection";
+                    case "avatar": return "Select Avatar or GameObject";
                     case "clear": return "Clear";
                     case "selectMesh": return "Select Mesh:";
                     case "selectMeshPrompt": return "Please select a mesh";
@@ -1906,13 +2032,15 @@ namespace VRChatAvatarTools
                     case "mesh": return "Mesh: ";
                     case "vertices": return "Vertices: ";
                     case "material": return "Material: ";
+                    case "selectMaterial": return "Select Material:";
+                    case "selectMaterialPrompt": return "Please select a material";
                     case "textureReadable": return "Texture Readable: ";
                     case "yes": return "Yes";
                     case "no": return "No (will copy)";
                     case "statusColliderReady": return "Status: Collider Ready";
                     
                     // Selection mode
-                    case "meshSelection": return "Mesh Selection";
+                    case "meshSelection": return "2. Mesh Selection for Color Change";
                     case "selectionMode": return "Selection Mode";
                     case "selectionModeOn": return "Selection Mode ON (Click to disable)";
                     case "selectionModeOff": return "Selection Mode OFF (Click to enable)";
@@ -1929,14 +2057,14 @@ namespace VRChatAvatarTools
                     case "setupCollider": return "Setup Collider (Debug)";
                     
                     // Selection list
-                    case "meshSelections": return "Mesh Selections";
+                    case "meshSelections": return "Selected Meshes";
                     case "noAreasSelected": return "No areas selected";
                     case "area": return "Area";
-                    case "verts": return "verts";
+                    case "verts": return "vertices";
                     
                     // Color settings
-                    case "colorSettings": return "Color Settings";
-                    case "blendColor": return "Blend Color";
+                    case "colorSettings": return "3. Color Settings";
+                    case "blendColor": return "Color";
                     case "strength": return "Strength";
                     case "blendMode": return "Blend Mode";
                     case "showPreview": return "Show Preview";
@@ -1949,11 +2077,11 @@ namespace VRChatAvatarTools
                     
                     // Actions
                     case "actions": return "Actions";
-                    case "applyColor": return "Apply Color";
+                    case "applyColor": return "Apply Color to Material";
                     case "exportMaskTexture": return "Export Mask";
                     case "exportTexture": return "Export Texture";
                     case "resetToOriginal": return "Reset to Original";
-                    case "materialSafetyHint": return "💡 Original materials are not overwritten. Copies are saved to kokoa/GeneratedMaterials and kokoa/GeneratedTextures.";
+                    case "materialSafetyHint": return "💡 Original materials are not overwritten. Duplicated files are saved to kokoa/GeneratedMaterials and kokoa/GeneratedTextures.";
                     
                     
                     // Debug
