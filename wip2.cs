@@ -20,7 +20,7 @@ namespace VRChatAvatarTools
         
         // Available SkinnedMeshRenderers
         private SkinnedMeshRenderer[] availableRenderers;
-        private int selectedRendererIndex = 0;
+        private int selectedRendererIndex = -1;
         private Dictionary<SkinnedMeshRenderer, bool> originalRendererStates = new Dictionary<SkinnedMeshRenderer, bool>();
         
         // Selection
@@ -109,7 +109,7 @@ namespace VRChatAvatarTools
             originalMaterial = null;
             originalTexture = null;
             availableRenderers = null;
-            selectedRendererIndex = 0;
+            selectedRendererIndex = -1;
             originalRendererStates.Clear();
             debugInfo = "";
             
@@ -211,8 +211,11 @@ namespace VRChatAvatarTools
                 
                 if (availableRenderers.Length > 0)
                 {
-                    selectedRendererIndex = 0;
-                    SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
+                    selectedRendererIndex = -1; // No default selection
+                    targetMeshRenderer = null;
+                    targetMesh = null;
+                    originalMaterial = null;
+                    originalTexture = null;
                 }
                 else
                 {
@@ -232,20 +235,23 @@ namespace VRChatAvatarTools
                 EditorGUILayout.Space();
                 EditorGUILayout.LabelField(GetLocalizedText("selectMesh"), EditorStyles.boldLabel);
                 
-                string[] rendererNames = new string[availableRenderers.Length];
+                string[] rendererNames = new string[availableRenderers.Length + 1];
+                rendererNames[0] = GetLocalizedText("selectMeshPrompt");
                 for (int i = 0; i < availableRenderers.Length; i++)
                 {
-                    rendererNames[i] = $"{i}: {availableRenderers[i].name}";
+                    rendererNames[i + 1] = $"{i}: {availableRenderers[i].name}";
                     if (availableRenderers[i].sharedMesh != null)
                     {
-                        rendererNames[i] += $" ({availableRenderers[i].sharedMesh.name})";
+                        rendererNames[i + 1] += $" ({availableRenderers[i].sharedMesh.name})";
                     }
                 }
                 
                 EditorGUI.BeginChangeCheck();
-                selectedRendererIndex = EditorGUILayout.Popup("Mesh Renderer", selectedRendererIndex, rendererNames);
+                int displayIndex = selectedRendererIndex + 1; // +1 because of the prompt at index 0
+                displayIndex = EditorGUILayout.Popup("Mesh Renderer", displayIndex, rendererNames);
+                selectedRendererIndex = displayIndex - 1; // Convert back to actual index
                 
-                if (EditorGUI.EndChangeCheck())
+                if (EditorGUI.EndChangeCheck() && selectedRendererIndex >= 0)
                 {
                     SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
                     ClearAllSelections();
@@ -582,6 +588,9 @@ namespace VRChatAvatarTools
             {
                 ResetToOriginal();
             }
+            
+            EditorGUILayout.Space();
+            EditorGUILayout.HelpBox(GetLocalizedText("materialSafetyHint"), MessageType.Info);
             
             EditorGUILayout.EndVertical();
         }
@@ -1804,6 +1813,7 @@ namespace VRChatAvatarTools
                     case "avatar": return "アバターを選択";
                     case "clear": return "クリア";
                     case "selectMesh": return "メッシュを選択:";
+                    case "selectMeshPrompt": return "メッシュを選択してください";
                     case "hideOtherMeshes": return "他のメッシュを隠す";
                     case "meshInfo": return "メッシュ情報:";
                     case "mesh": return "メッシュ: ";
@@ -1856,6 +1866,7 @@ namespace VRChatAvatarTools
                     case "exportMaskTexture": return "マスクをエクスポート";
                     case "exportTexture": return "テクスチャをエクスポート";
                     case "resetToOriginal": return "オリジナルにリセット";
+                    case "materialSafetyHint": return "💡 オリジナルのマテリアルは上書きされません。複製されたファイルは kokoa/GeneratedMaterials と kokoa/GeneratedTextures に保存されます。";
                     
                     
                     // Debug
@@ -1889,6 +1900,7 @@ namespace VRChatAvatarTools
                     case "avatar": return "Avatar";
                     case "clear": return "Clear";
                     case "selectMesh": return "Select Mesh:";
+                    case "selectMeshPrompt": return "Please select a mesh";
                     case "hideOtherMeshes": return "Hide Other Meshes";
                     case "meshInfo": return "Mesh Info:";
                     case "mesh": return "Mesh: ";
@@ -1941,6 +1953,7 @@ namespace VRChatAvatarTools
                     case "exportMaskTexture": return "Export Mask";
                     case "exportTexture": return "Export Texture";
                     case "resetToOriginal": return "Reset to Original";
+                    case "materialSafetyHint": return "💡 Original materials are not overwritten. Copies are saved to kokoa/GeneratedMaterials and kokoa/GeneratedTextures.";
                     
                     
                     // Debug
