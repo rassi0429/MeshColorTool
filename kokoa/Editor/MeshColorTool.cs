@@ -1282,7 +1282,7 @@ namespace VRChatAvatarTools
             RenderTexture previous = RenderTexture.active;
             RenderTexture.active = tmp;
             
-            Texture2D readableTexture = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
+            Texture2D readableTexture = new Texture2D(source.width, source.height, TextureFormat.ARGB32, true);
             readableTexture.ReadPixels(new Rect(0, 0, tmp.width, tmp.height), 0, 0);
             readableTexture.Apply();
             
@@ -1319,7 +1319,7 @@ namespace VRChatAvatarTools
             
             if (thumbnail != null)
             {
-                Texture2D resizedThumbnail = new Texture2D(thumbnailSize, thumbnailSize, TextureFormat.ARGB32, false);
+                Texture2D resizedThumbnail = new Texture2D(thumbnailSize, thumbnailSize, TextureFormat.ARGB32, true);
                 RenderTexture tmp = RenderTexture.GetTemporary(thumbnailSize, thumbnailSize, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Linear);
                 RenderTexture previous = RenderTexture.active;
                 RenderTexture.active = tmp;
@@ -1462,7 +1462,7 @@ namespace VRChatAvatarTools
             RenderTexture previous = RenderTexture.active;
             RenderTexture.active = renderTexture;
             
-            Texture2D thumbnail = new Texture2D(thumbnailSize, thumbnailSize, TextureFormat.ARGB32, false);
+            Texture2D thumbnail = new Texture2D(thumbnailSize, thumbnailSize, TextureFormat.ARGB32, true);
             thumbnail.ReadPixels(new Rect((thumbnailSize * 2 - thumbnailSize) / 2, (thumbnailSize * 2 - thumbnailSize) / 2, thumbnailSize, thumbnailSize), 0, 0);
             thumbnail.Apply();
             
@@ -1727,7 +1727,7 @@ namespace VRChatAvatarTools
             
             if (IsTextureReadable(originalTexture))
             {
-                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
+                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, true);
                 workingTexture.SetPixels(originalTexture.GetPixels());
                 workingTexture.Apply();
             }
@@ -2223,7 +2223,7 @@ namespace VRChatAvatarTools
             
             if (IsTextureReadable(originalTexture))
             {
-                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, false);
+                workingTexture = new Texture2D(originalTexture.width, originalTexture.height, TextureFormat.ARGB32, true);
                 
                 Color[] blackPixels = new Color[originalTexture.width * originalTexture.height];
                 for (int i = 0; i < blackPixels.Length; i++)
@@ -2235,7 +2235,7 @@ namespace VRChatAvatarTools
             else
             {
                 Texture2D readableOriginal = GetReadableTexture(originalTexture);
-                workingTexture = new Texture2D(readableOriginal.width, readableOriginal.height, TextureFormat.ARGB32, false);
+                workingTexture = new Texture2D(readableOriginal.width, readableOriginal.height, TextureFormat.ARGB32, true);
                 
                 Color[] blackPixels = new Color[readableOriginal.width * readableOriginal.height];
                 for (int i = 0; i < blackPixels.Length; i++)
