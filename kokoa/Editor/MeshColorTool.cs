@@ -1185,6 +1185,9 @@ namespace VRChatAvatarTools
                 importer.sRGBTexture = true;
                 importer.textureCompression = TextureImporterCompression.Uncompressed;
                 importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
+                importer.mipmapEnabled = true;
+                importer.streamingMipmaps = true;
+                importer.streamingMipmapsPriority = 0;
                 importer.SaveAndReimport();
             }
             
@@ -2168,6 +2171,9 @@ namespace VRChatAvatarTools
                 importer.sRGBTexture = false;
                 importer.textureCompression = TextureImporterCompression.Uncompressed;
                 importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
+                importer.mipmapEnabled = true;
+                importer.streamingMipmaps = true;
+                importer.streamingMipmapsPriority = 0;
                 importer.SaveAndReimport();
             }
             
@@ -2208,6 +2214,9 @@ namespace VRChatAvatarTools
                 importer.sRGBTexture = true;
                 importer.textureCompression = TextureImporterCompression.Uncompressed;
                 importer.maxTextureSize = Mathf.Max(originalTexture.width, originalTexture.height);
+                importer.mipmapEnabled = true;
+                importer.streamingMipmaps = true;
+                importer.streamingMipmapsPriority = 0;
                 importer.SaveAndReimport();
             }
             
