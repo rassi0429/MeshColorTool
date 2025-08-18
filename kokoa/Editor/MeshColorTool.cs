@@ -2811,8 +2811,8 @@ namespace VRChatAvatarTools
                     case "noRenderer": return "Please select an avatar";
                     
                     // Target selection
-                    case "targetMesh": return "1. Avatar Selection";
-                    case "avatar": return "Select Avatar or GameObject";
+                    case "targetMesh": return "1. Avatar(GameObject) Selection";
+                    case "avatar": return "Select Avatar";
                     case "clear": return "Clear";
                     case "avatarLockedHint": return "💡 To change avatar, press the \"Clear\" button";
                     case "selectMesh": return "Select Mesh:";
