@@ -1610,23 +1610,23 @@ namespace VRChatAvatarTools
                 }
                 
                 EditorGUILayout.BeginVertical();
-                EditorGUILayout.LabelField($"選択中: {selectedRenderer.name}");
+                EditorGUILayout.LabelField($"{GetLocalizedText("selectedLabel")}{selectedRenderer.name}");
                 if (selectedRenderer.sharedMesh != null)
                 {
-                    EditorGUILayout.LabelField($"メッシュ: {selectedRenderer.sharedMesh.name}");
-                    EditorGUILayout.LabelField($"頂点数: {selectedRenderer.sharedMesh.vertexCount}");
+                    EditorGUILayout.LabelField($"{GetLocalizedText("meshLabel")}{selectedRenderer.sharedMesh.name}");
+                    EditorGUILayout.LabelField($"{GetLocalizedText("vertexCountLabel")}{selectedRenderer.sharedMesh.vertexCount}");
                 }
                 EditorGUILayout.EndVertical();
             }
             else
             {
-                EditorGUILayout.LabelField("メッシュレンダラーを選択してください");
+                EditorGUILayout.LabelField(GetLocalizedText("selectMeshRendererPrompt"));
             }
             
             GUILayout.FlexibleSpace();
             
             // 変更ボタン
-            if (GUILayout.Button("変更", GUILayout.Width(60)))
+            if (GUILayout.Button(GetLocalizedText("changeButton"), GUILayout.Width(60)))
             {
                 showMeshRendererList = !showMeshRendererList;
             }
@@ -1637,7 +1637,7 @@ namespace VRChatAvatarTools
             if (showMeshRendererList)
             {
                 EditorGUILayout.Space();
-                EditorGUILayout.LabelField("利用可能なメッシュレンダラー:", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(GetLocalizedText("availableMeshRenderers"), EditorStyles.boldLabel);
                 
                 meshRendererScrollPosition = EditorGUILayout.BeginScrollView(meshRendererScrollPosition, GUILayout.Height(200));
                 
@@ -1663,8 +1663,8 @@ namespace VRChatAvatarTools
                     EditorGUILayout.LabelField($"{i}: {renderer.name}");
                     if (renderer.sharedMesh != null)
                     {
-                        EditorGUILayout.LabelField($"メッシュ: {renderer.sharedMesh.name}");
-                        EditorGUILayout.LabelField($"頂点数: {renderer.sharedMesh.vertexCount}");
+                        EditorGUILayout.LabelField($"{GetLocalizedText("meshLabel")}{renderer.sharedMesh.name}");
+                        EditorGUILayout.LabelField($"{GetLocalizedText("vertexCountLabel")}{renderer.sharedMesh.vertexCount}");
                     }
                     EditorGUILayout.EndVertical();
                     
@@ -1681,7 +1681,7 @@ namespace VRChatAvatarTools
                         GUI.backgroundColor = Color.cyan;
                     }
                     
-                    if (GUILayout.Button("選択", GUILayout.Width(80)))
+                    if (GUILayout.Button(GetLocalizedText("selectButton"), GUILayout.Width(80)))
                     {
                         selectedRendererIndex = i;
                         SelectMeshRenderer(availableRenderers[selectedRendererIndex]);
@@ -1692,8 +1692,8 @@ namespace VRChatAvatarTools
                     GUI.backgroundColor = Color.yellow;
                     
                     GUIContent highlightContent = EditorGUIUtility.IconContent("Lighting");
-                    highlightContent.text = " 光らせる";
-                    highlightContent.tooltip = "メッシュを一時的にハイライト表示します";
+                    highlightContent.text = GetLocalizedText("highlightButton");
+                    highlightContent.tooltip = GetLocalizedText("highlightTooltip");
                     
                     if (GUILayout.Button(highlightContent, GUILayout.Width(80)))
                     {
@@ -2808,6 +2808,17 @@ namespace VRChatAvatarTools
                     case "textureExportMsg": return "テクスチャがエクスポートされました:\n{0}";
                     case "ok": return "OK";
                     
+                    // UI Labels
+                    case "selectedLabel": return "選択中: ";
+                    case "meshLabel": return "メッシュ: ";
+                    case "vertexCountLabel": return "頂点数: ";
+                    case "selectMeshRendererPrompt": return "メッシュレンダラーを選択してください";
+                    case "changeButton": return "変更";
+                    case "availableMeshRenderers": return "利用可能なメッシュレンダラー:";
+                    case "selectButton": return "選択";
+                    case "highlightButton": return " 光らせる";
+                    case "highlightTooltip": return "メッシュを一時的にハイライト表示します";
+                    
                     default: return key;
                 }
             }
@@ -2896,6 +2907,17 @@ namespace VRChatAvatarTools
                     case "textureExportComplete": return "Texture Export Complete";
                     case "textureExportMsg": return "Texture has been exported to:\n{0}";
                     case "ok": return "OK";
+                    
+                    // UI Labels
+                    case "selectedLabel": return "Selected: ";
+                    case "meshLabel": return "Mesh: ";
+                    case "vertexCountLabel": return "Vertex Count: ";
+                    case "selectMeshRendererPrompt": return "Please select a mesh renderer";
+                    case "changeButton": return "Change";
+                    case "availableMeshRenderers": return "Available Mesh Renderers:";
+                    case "selectButton": return "Select";
+                    case "highlightButton": return " Highlight";
+                    case "highlightTooltip": return "Temporarily highlight the mesh";
                     
                     default: return key;
                 }
