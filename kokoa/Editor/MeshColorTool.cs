@@ -2718,7 +2718,7 @@ namespace VRChatAvatarTools
                 switch (key)
                 {
                     // Main window
-                    case "title": return "Nesh Color Editor";
+                    case "title": return "Mesh Color Editor";
                     case "noRenderer": return "アバターを選択してください";
                     
                     // Target selection
