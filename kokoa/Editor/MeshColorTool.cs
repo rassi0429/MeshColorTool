@@ -656,9 +656,25 @@ namespace VRChatAvatarTools
             }
             else
             {
-                // Adjust height based on multi-selection mode
-                float scrollHeight = isMultiSelectionMode ? 150 : 0;
-                selectionScrollPos = EditorGUILayout.BeginScrollView(selectionScrollPos, GUILayout.Height(scrollHeight));
+                // Calculate dynamic height based on number of selections
+                const float itemHeight = 25f; // Height per selection item
+                const float maxAutoHeight = 150f; // Maximum auto height before scrolling
+                const float minHeight = 50f; // Minimum height
+                
+                float requiredHeight = meshSelections.Count * itemHeight + 10f; // Add some padding
+                float actualHeight = Mathf.Clamp(requiredHeight, minHeight, maxAutoHeight);
+                
+                // Use GUILayout.MaxHeight for auto-sizing up to maxAutoHeight
+                if (requiredHeight <= maxAutoHeight)
+                {
+                    // Auto-size without scroll when content fits
+                    EditorGUILayout.BeginVertical();
+                }
+                else
+                {
+                    // Use scroll view when content exceeds maxAutoHeight
+                    selectionScrollPos = EditorGUILayout.BeginScrollView(selectionScrollPos, GUILayout.Height(maxAutoHeight));
+                }
                 
                 for (int i = 0; i < meshSelections.Count; i++)
                 {
@@ -699,7 +715,16 @@ namespace VRChatAvatarTools
                     EditorGUILayout.EndHorizontal();
                 }
                 
-                EditorGUILayout.EndScrollView();
+                // End the appropriate container based on whether we're using scroll or not
+                if (requiredHeight <= maxAutoHeight)
+                {
+                    EditorGUILayout.EndVertical();
+                }
+                else
+                {
+                    EditorGUILayout.EndScrollView();
+                }
+                
                 EditorGUILayout.Space();
             }
             
