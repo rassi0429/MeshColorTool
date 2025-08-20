@@ -677,7 +677,17 @@ namespace VRChatAvatarTools
                     
                     GUI.backgroundColor = Color.white;
                     
+                    EditorGUI.BeginChangeCheck();
                     selection.isEnabled = EditorGUILayout.Toggle(selection.isEnabled, GUILayout.Width(20));
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        // Update preview when checkbox state changes
+                        if (showPreview)
+                        {
+                            needsPreviewUpdate = true;
+                        }
+                        SceneView.RepaintAll();
+                    }
                     
                     GUI.backgroundColor = Color.red;
                     if (GUILayout.Button("X", GUILayout.Width(20)))
@@ -1087,17 +1097,15 @@ namespace VRChatAvatarTools
                 {
                     if (isCtrlHeld)
                     {
+                        // Ctrl+Click: Remove from selection
                         RemoveVerticesFromSelections(selectedVertices);
                     }
                     else
                     {
+                        // Normal Click: Add to selection (ignore if already selected)
                         int overlappingSelectionIndex = FindOverlappingSelection(selectedVertices);
                         
-                        if (overlappingSelectionIndex >= 0)
-                        {
-                            RemoveSelection(overlappingSelectionIndex);
-                        }
-                        else
+                        if (overlappingSelectionIndex < 0)  // Only add if not already selected
                         {
                             var newSelection = new MeshSelection
                             {
@@ -1107,6 +1115,11 @@ namespace VRChatAvatarTools
                             
                             meshSelections.Add(newSelection);
                             activeSelectionIndex = meshSelections.Count - 1;
+                        }
+                        // If already selected, just set it as active but don't remove
+                        else
+                        {
+                            activeSelectionIndex = overlappingSelectionIndex;
                         }
                     }
                 }
@@ -2533,7 +2546,7 @@ namespace VRChatAvatarTools
             if (targetMesh == null)
                 return;
                 
-            // Collect all currently selected vertices
+            // Collect all currently selected vertices (from enabled selections)
             HashSet<int> currentlySelected = new HashSet<int>();
             foreach (var selection in meshSelections)
             {
@@ -2544,6 +2557,12 @@ namespace VRChatAvatarTools
                         currentlySelected.Add(vertex);
                     }
                 }
+            }
+            
+            // Disable all existing selections
+            foreach (var selection in meshSelections)
+            {
+                selection.isEnabled = false;
             }
             
             // Create new selection with all unselected vertices
@@ -2578,8 +2597,7 @@ namespace VRChatAvatarTools
                 }
             }
             
-            // Clear current selections and add the inverted selection
-            meshSelections.Clear();
+            // Add the inverted selection as a new selection (keep existing disabled selections)
             if (invertedVertices.Count > 0)
             {
                 var newSelection = new MeshSelection
@@ -2589,7 +2607,7 @@ namespace VRChatAvatarTools
                     isEnabled = true
                 };
                 meshSelections.Add(newSelection);
-                activeSelectionIndex = 0;
+                activeSelectionIndex = meshSelections.Count - 1;
             }
             
             // Update preview if needed
