@@ -693,10 +693,27 @@ namespace VRChatAvatarTools
                 EditorGUILayout.Space();
             }
             
-            if (isMultiSelectionMode && GUILayout.Button(GetLocalizedText("clearAllSelections")))
+            // Selection action buttons
+            EditorGUILayout.BeginHorizontal();
+            
+            if (GUILayout.Button(GetLocalizedText("invertSelection")))
+            {
+                if (EditorUtility.DisplayDialog(
+                    GetLocalizedText("invertSelection"),
+                    GetLocalizedText("invertSelectionConfirm"),
+                    GetLocalizedText("yes"),
+                    GetLocalizedText("cancel")))
+                {
+                    InvertSelection();
+                }
+            }
+            
+            if (GUILayout.Button(GetLocalizedText("clearAllSelections")))
             {
                 ClearAllSelections();
             }
+            
+            EditorGUILayout.EndHorizontal();
             
             EditorGUILayout.EndVertical();
         }
@@ -2511,6 +2528,80 @@ namespace VRChatAvatarTools
             SceneView.RepaintAll();
         }
         
+        private void InvertSelection()
+        {
+            if (targetMesh == null)
+                return;
+                
+            // Collect all currently selected vertices
+            HashSet<int> currentlySelected = new HashSet<int>();
+            foreach (var selection in meshSelections)
+            {
+                if (selection.isEnabled)
+                {
+                    foreach (int vertex in selection.vertices)
+                    {
+                        currentlySelected.Add(vertex);
+                    }
+                }
+            }
+            
+            // Create new selection with all unselected vertices
+            HashSet<int> invertedVertices = new HashSet<int>();
+            List<int> invertedTriangles = new List<int>();
+            
+            int vertexCount = targetMesh.vertexCount;
+            int[] triangles = targetMesh.triangles;
+            
+            // Add all vertices that are not currently selected
+            for (int i = 0; i < vertexCount; i++)
+            {
+                if (!currentlySelected.Contains(i))
+                {
+                    invertedVertices.Add(i);
+                }
+            }
+            
+            // Find triangles that contain inverted vertices
+            for (int i = 0; i < triangles.Length; i += 3)
+            {
+                int triangleIndex = i / 3;
+                int v0 = triangles[i];
+                int v1 = triangles[i + 1];
+                int v2 = triangles[i + 2];
+                
+                if (invertedVertices.Contains(v0) || 
+                    invertedVertices.Contains(v1) || 
+                    invertedVertices.Contains(v2))
+                {
+                    invertedTriangles.Add(triangleIndex);
+                }
+            }
+            
+            // Clear current selections and add the inverted selection
+            meshSelections.Clear();
+            if (invertedVertices.Count > 0)
+            {
+                var newSelection = new MeshSelection
+                {
+                    vertices = invertedVertices,
+                    triangles = invertedTriangles,
+                    isEnabled = true
+                };
+                meshSelections.Add(newSelection);
+                activeSelectionIndex = 0;
+            }
+            
+            // Update preview if needed
+            if (showPreview)
+            {
+                needsPreviewUpdate = true;
+            }
+            
+            Repaint();
+            SceneView.RepaintAll();
+        }
+        
         private void CleanupPreview()
         {
             RemovePreview();
@@ -2766,6 +2857,9 @@ namespace VRChatAvatarTools
                     case "xAxisHelp": return "選択はX = {0}を越えません\nクリックした側のみが選択されます";
                     case "totalSelectedVertices": return "選択された頂点の総数: ";
                     case "clearAllSelections": return "すべての選択をクリア";
+                    case "invertSelection": return "選択を反転";
+                    case "invertSelectionConfirm": return "選択されていない全ての領域を選択します。\n大きなメッシュの場合、処理に時間がかかる場合があります。\n続行しますか？";
+                    case "cancel": return "キャンセル";
                     case "setupCollider": return "コライダーをセットアップ (デバッグ)";
                     
                     // Selection list
@@ -2866,6 +2960,9 @@ namespace VRChatAvatarTools
                     case "xAxisHelp": return "Selection will not cross X = {0}\nClick on either side to select that side only";
                     case "totalSelectedVertices": return "Total Selected Vertices: ";
                     case "clearAllSelections": return "Clear All Selections";
+                    case "invertSelection": return "Invert Selection";
+                    case "invertSelectionConfirm": return "This will select all unselected areas.\nFor large meshes, this may take some time.\nDo you want to continue?";
+                    case "cancel": return "Cancel";
                     case "setupCollider": return "Setup Collider (Debug)";
                     
                     // Selection list
