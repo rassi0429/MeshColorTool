@@ -1182,19 +1182,44 @@ namespace VRChatAvatarTools
             }
         }
         
+        private string GetKokoaFolderPath()
+        {
+            // Get the path of this script
+            var scriptPath = AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(this));
+            // Navigate up from Editor folder to kokoa folder
+            var kokoaPath = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(scriptPath));
+            // Convert to Unity asset path format
+            return kokoaPath.Replace('\\', '/');
+        }
+        
+        private void EnsureGeneratedFoldersExist()
+        {
+            string kokoaPath = GetKokoaFolderPath();
+            string generatedTexturesPath = $"{kokoaPath}/GeneratedTextures";
+            string generatedMaterialsPath = $"{kokoaPath}/GeneratedMaterials";
+            
+            if (!AssetDatabase.IsValidFolder(generatedTexturesPath))
+            {
+                AssetDatabase.CreateFolder(kokoaPath, "GeneratedTextures");
+            }
+            
+            if (!AssetDatabase.IsValidFolder(generatedMaterialsPath))
+            {
+                AssetDatabase.CreateFolder(kokoaPath, "GeneratedMaterials");
+            }
+        }
+        
         private void ApplyColorToSelection()
         {
             if (originalTexture == null || meshSelections.Count == 0) return;
             
             RemovePreview();
             
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string newTexturePath = $"Assets/kokoa/GeneratedTextures/{originalTexture.name}_edited_{timestamp}.png";
+            EnsureGeneratedFoldersExist();
+            string kokoaPath = GetKokoaFolderPath();
             
-            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedTextures"))
-            {
-                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedTextures");
-            }
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string newTexturePath = $"{kokoaPath}/GeneratedTextures/{originalTexture.name}_edited_{timestamp}.png";
             
             Texture2D newTexture = CreateModifiedTextureWithAllSelections();
             
@@ -1223,12 +1248,7 @@ namespace VRChatAvatarTools
             
             Texture2D savedTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(newTexturePath);
             
-            string newMaterialPath = $"Assets/kokoa/GeneratedMaterials/{originalMaterial.name}_edited_{timestamp}.mat";
-            
-            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedMaterials"))
-            {
-                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedMaterials");
-            }
+            string newMaterialPath = $"{kokoaPath}/GeneratedMaterials/{originalMaterial.name}_edited_{timestamp}.mat";
             
             Material newMaterial = new Material(originalMaterial);
             newMaterial.mainTexture = savedTexture;
@@ -2174,13 +2194,11 @@ namespace VRChatAvatarTools
         {
             if (originalTexture == null || meshSelections.Count == 0) return;
             
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string maskTexturePath = $"Assets/kokoa/GeneratedTextures/{originalTexture.name}_mask_{timestamp}.png";
+            EnsureGeneratedFoldersExist();
+            string kokoaPath = GetKokoaFolderPath();
             
-            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedTextures"))
-            {
-                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedTextures");
-            }
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string maskTexturePath = $"{kokoaPath}/GeneratedTextures/{originalTexture.name}_mask_{timestamp}.png";
             
             Texture2D maskTexture = CreateMaskTexture();
             
@@ -2217,13 +2235,11 @@ namespace VRChatAvatarTools
         {
             if (originalTexture == null || meshSelections.Count == 0) return;
             
-            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string texturePath = $"Assets/kokoa/GeneratedTextures/{originalTexture.name}_exported_{timestamp}.png";
+            EnsureGeneratedFoldersExist();
+            string kokoaPath = GetKokoaFolderPath();
             
-            if (!AssetDatabase.IsValidFolder("Assets/kokoa/GeneratedTextures"))
-            {
-                AssetDatabase.CreateFolder("Assets/kokoa", "GeneratedTextures");
-            }
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string texturePath = $"{kokoaPath}/GeneratedTextures/{originalTexture.name}_exported_{timestamp}.png";
             
             Texture2D exportTexture = CreateModifiedTextureWithAllSelections();
             
@@ -2906,7 +2922,7 @@ namespace VRChatAvatarTools
                     case "exportMaskTexture": return "マスクテクスチャをエクスポート";
                     case "exportTexture": return "テクスチャをエクスポート";
                     case "resetToOriginal": return "オリジナルにリセット";
-                    case "materialSafetyHint": return "💡 オリジナルのマテリアルは上書きされません。複製されたファイルは kokoa/GeneratedMaterials と kokoa/GeneratedTextures に保存されます。";
+                    case "materialSafetyHint": return "💡 オリジナルのマテリアルは上書きされません。複製されたファイルは kokoaフォルダ内の GeneratedMaterials と GeneratedTextures に保存されます。";
                     
                     
                     // Dialog messages
@@ -3009,7 +3025,7 @@ namespace VRChatAvatarTools
                     case "exportMaskTexture": return "Export Mask";
                     case "exportTexture": return "Export Texture";
                     case "resetToOriginal": return "Reset to Original";
-                    case "materialSafetyHint": return "💡 Original materials are not overwritten. Duplicated files are saved to kokoa/GeneratedMaterials and kokoa/GeneratedTextures.";
+                    case "materialSafetyHint": return "💡 Original materials are not overwritten. Duplicated files are saved to GeneratedMaterials and GeneratedTextures folders inside the kokoa folder.";
                     
                     
                     // Dialog messages
