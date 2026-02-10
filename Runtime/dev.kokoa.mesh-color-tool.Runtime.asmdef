@@ -1,13 +1,8 @@
 {
-    "name": "dev.kokoa.mesh-color-tool.Editor",
+    "name": "dev.kokoa.mesh-color-tool.Runtime",
     "rootNamespace": "",
-    "references": [
-        "Unity.Mathematics",
-        "dev.kokoa.mesh-color-tool.Runtime"
-    ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "references": [],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

@@ -1209,16 +1209,23 @@ namespace VRChatAvatarTools
         
         private string GetKokoaFolderPath()
         {
-            // Get the path of this script
-            var scriptPath = AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(this));
-            // Navigate up from Editor folder to kokoa folder
-            var kokoaPath = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(scriptPath));
-            // Convert to Unity asset path format
-            return kokoaPath.Replace('\\', '/');
+
+            // Get the path of kokoa folder
+            var kokoaPath = "Assets/kokoa";
+            return kokoaPath;
         }
         
-        private void EnsureGeneratedFoldersExist()
+        private void CreateKokoaFolderIfNotExists()
         {
+            string kokoaPath = GetKokoaFolderPath();
+            if (!AssetDatabase.IsValidFolder(kokoaPath))
+            {
+                AssetDatabase.CreateFolder("Assets", "kokoa");
+            }
+        }
+        private void EnsureGeneratedFoldersExist()
+        {   
+            CreateKokoaFolderIfNotExists();
             string kokoaPath = GetKokoaFolderPath();
             string generatedTexturesPath = $"{kokoaPath}/GeneratedTextures";
             string generatedMaterialsPath = $"{kokoaPath}/GeneratedMaterials";
