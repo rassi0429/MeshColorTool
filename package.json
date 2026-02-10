@@ -1,0 +1,14 @@
+{
+    "name": "dev.kokoa.mesh-color-tool",
+    "version": "0.1.0",
+    "displayName": "kokoa's Mesh Color Tool",
+    "description": "Lets you easily change mesh colors with a single click.",
+    "unity": "2022.3",
+    "author": {
+        "name": "kokoa",
+        "url": "https://github.com/rassi0429"
+    },
+    "license": "MIT",
+    "licenseUrl": "",
+    "vpmDependencies": {}
+}

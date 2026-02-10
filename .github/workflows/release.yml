@@ -1,0 +1,37 @@
+name: "Build unitypackage"
+
+on:
+  push:
+    tags:
+      - '*.*.*'      # 1.0.0 など 3つの数字がドットで繋がっているsemverのタグに反応
+
+permissions:
+  contents: write
+
+env:
+  packageName: "dev.kokoa.mesh-color-tool"
+
+jobs:
+  build:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout"
+        uses: "actions/checkout@v4"
+
+      - name: "Build"
+        id: "build"
+        uses: "docker://ghcr.io/rerigferl/vpm-packager:latest"
+        with:
+          args: "-z -u"
+
+      - name: "Create Release"
+        uses: "softprops/action-gh-release@v2"
+        if: ${{ steps.build.outputs.package-version != '0.0.0' }}
+        with:
+          tag_name: ${{ steps.build.outputs.package-version }}
+          draft: true
+          generate_release_notes: true
+          files: |
+            ${{ steps.build.outputs.zip-path }}
+            ${{ steps.build.outputs.unitypackage-path }}
+            ${{ steps.build.outputs.manifest-path }}
